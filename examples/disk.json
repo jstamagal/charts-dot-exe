@@ -1,0 +1,6 @@
+[
+  { "label": "nvme0n1", "used_gb": 412, "free_gb": 500 },
+  { "label": "nvme1n1", "used_gb": 288, "free_gb": 624 },
+  { "label": "sda",     "used_gb": 1860, "free_gb": 140 },
+  { "label": "sdb",     "used_gb": 96,  "free_gb": 1904 }
+]

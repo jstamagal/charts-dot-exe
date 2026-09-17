@@ -1,0 +1,271 @@
+.TH CHARTS 1 "2026-09-17" "charts 1.0.0" "User Commands"
+.SH NAME
+charts \- ANSI charts for the Linux console
+.SH SYNOPSIS
+.B charts
+.RI [ FILE | \- ]
+.RI [ options ]
+.br
+.B charts
+.IR a.csv " " b.json " " c.tsv " " \-\-tile " " \-t " " bar,line,pie3d
+.br
+.B charts
+.B \-i
+.IR dir | file ...
+.SH DESCRIPTION
+.B charts
+reads CSV, TSV or JSON and draws a chart that fits the screen.
+It uses the 16 ANSI console colours with block shading, extruded bars and
+ellipsoid pies, double-line frames and drop shadows.
+There are no dependencies, no configuration and no runtime: one binary, one
+screenful of output.
+.PP
+Text columns become category labels; numeric columns become series.
+Directories expand to the data files inside them.
+.SH OPTIONS
+.SS Output
+.TP
+.BI \-t,\ \-\-type " NAME"
+Chart type. A comma-separated list with
+.B \-\-tile
+draws several charts at once.
+Types:
+.BR bar ", " stacked ", " hbar ", " line ", " area ", " pie ", " pie3d ", " donut ", " scatter ", " hist ", " table .
+Default
+.BR bar .
+.TP
+.BI \-T,\ \-\-title " TEXT"
+Title, drawn into the top border.
+.TP
+.BI \-\-subtitle " TEXT"
+Second centred line under the title.
+.TP
+.BI \-\-xlabel " TEXT"
+Label under the x axis.
+.TP
+.BI \-\-ylabel " TEXT"
+Label up the left side, one character per row.
+.TP
+.BI \-p,\ \-\-palette " NAME"
+Colour set:
+.BR dos " (default), " ega ", " cga ", " ice ", " fire ", " green ", " amber ", " mono .
+.TP
+.BI \-w,\ \-\-width " N"
+Force the width in cells. Defaults to the terminal width.
+.TP
+.BI \-H,\ \-\-height " N"
+Force the height in rows.
+.TP
+.BI \-\-frame " STYLE"
+.BR double " (default), " single ", " heavy ", " ascii " or " none .
+.TP
+.B \-\-no\-shadow
+No drop shadow behind the frame.
+.TP
+.B \-\-tile
+Lay several charts out on one screen in a grid.
+.TP
+.BR \-\-legend ", " \-\-no\-legend
+Series legend on or off.
+.TP
+.BR \-\-values ", " \-\-no\-values
+Numbers drawn on the bars.
+.TP
+.BR \-\-grid ", " \-\-no\-grid
+Horizontal grid lines.
+.TP
+.BR \-\-color ", " \-\-no\-color
+Force colour on or off. Colour is dropped when stdout is not a terminal.
+.B NO_COLOR
+is honoured.
+.TP
+.B \-\-ascii
+ASCII glyphs only, no box drawing or block characters.
+.TP
+.BI \-o,\ \-\-out " FILE"
+Write to FILE instead of stdout.
+.SS Data
+.TP
+.B \-\-xy
+The first numeric column is the X axis.
+.TP
+.B \-\-transpose
+Swap rows and columns before anything else.
+.TP
+.BI \-\-delim " C"
+Force the delimiter. Accepts
+.BR tab ", " comma ", " semi ", " pipe
+or a single character.
+.TP
+.B \-\-no\-header
+Treat the first row as data.
+.TP
+.BI \-\-labels\-col " N"
+Use column N (1-based) for labels.
+.TP
+.BI \-\-series\-col " N"
+Keep only numeric column N as a series.
+.TP
+.BI \-\-label\-key " K"
+JSON: the record field that supplies labels.
+.TP
+.BI \-\-min " V"
+.TP
+.BI \-\-max " V"
+Pin the value axis.
+.TP
+.BI \-\-explode " [N]"
+Pop slice N out of the pie. Bare
+.B \-\-explode
+pops the biggest slice.
+.TP
+.BI \-\-depth " N"
+Rows of 3-D extrusion. Default 2, maximum 6.
+.TP
+.BI \-\-bins " N"
+Histogram buckets. Default 10.
+.TP
+.BI \-\-prec " N"
+Fixed number of decimals in value labels.
+.SS Running
+.TP
+.BR \-i,\ \-\-interactive
+Full-screen interactive mode. Keys:
+.BR c / C
+or the arrows change chart type,
+.B 1\-9
+jump to a type,
+.B p / P
+change palette,
+.B t
+shows the table,
+.B e
+pops a pie slice,
+.B v
+value labels,
+.B g
+grid,
+.B d / D
+deeper or flatter 3-D,
+.B n / N
+next or previous file,
+.B r
+reload,
+.B w
+toggles auto-reload,
+.B ?
+shows the keys and
+.B q
+quits.
+.TP
+.B \-\-watch
+Redraw whenever a source file changes. Needs a terminal.
+.TP
+.B \-\-watch\-ms " N"
+Poll interval for
+.BR \-\-watch .
+.TP
+.B \-\-describe
+Print what was parsed out of the file, then exit.
+.TP
+.BI \-\-example " [csv|json]"
+Print a sample input file.
+.TP
+.BR \-\-list\-types ", " \-\-list\-palettes ", " \-\-version ", " \-h
+Informational output.
+.SH INPUT
+.SS CSV and TSV
+The delimiter is sniffed from the first non-blank line among
+.BR , " " ; ", TAB and " | .
+If the first row contains any text it is a header; if every cell is a number the
+file has no header and columns are named
+.BR col1 ,
+.BR col2 ,
+etc.
+A non-numeric first column becomes the labels, every other numeric column
+becomes a series.
+Blank lines are skipped and a line beginning with
+.B #
+is a comment.
+Quoted fields may contain the delimiter; a doubled quote inside a quoted field
+is one quote.
+Numbers may carry thousands separators or a trailing percent sign; a field that
+does not parse becomes a gap in that series.
+.SS JSON
+Accepted shapes:
+.IP \(bu 2
+an array of records, labels taken from a text field named
+.BR label ", " name ", " key ", " category ", " date ", " time ", " month " or " year ;
+.IP \(bu 2
+an object with
+.B labels
+and
+.BR series ,
+each series carrying
+.B name
+and
+.B values ;
+.IP \(bu 2
+an object of numbers, one series with the keys as labels;
+.IP \(bu 2
+a flat array of numbers;
+.IP \(bu 2
+an array of arrays with a text first row;
+.IP \(bu 2
+an object with parallel
+.B x
+and
+.B y
+arrays.
+.PP
+.B null
+and missing fields become gaps.
+.SH EXIT STATUS
+.TP
+.B 0
+The chart was drawn.
+.TP
+.B 1
+Bad data, bad option or unreadable file. One line on stderr beginning
+.BR "charts: " .
+.TP
+.B 2
+No input, or
+.B \-i
+or
+.B \-\-watch
+without a terminal.
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+When set and non-empty, colour is off.
+.TP
+.BR COLUMNS ", " LINES
+Used for the chart size when the terminal size cannot be read.
+.TP
+.B TERM
+Not consulted for capability; the classic 16 SGR colours are used always.
+.SH EXAMPLES
+.TP
+.B charts revenue.csv -t pie3d -T 'Revenue mix'
+An extruded pie with the file named in the frame.
+.TP
+.B charts quarterly.csv -t stacked --values --ylabel units
+Stacked bars with the totals printed on top.
+.TP
+.B charts disk.json -t hbar --palette ice
+Horizontal bars in a cool palette.
+.TP
+.B charts a.csv b.csv c.csv d.csv --tile -t bar,line,pie3d,stacked
+Four charts, one screen, four types.
+.TP
+.B charts -i examples/
+Browse a directory of data interactively.
+.TP
+.B cat data.csv | charts -t bar
+From a pipe.
+.SH SEE ALSO
+.BR gnuplot (1),
+.BR asciigraph (1)
+.SH AUTHOR
+Written for the Linux console by John Stamagal.
