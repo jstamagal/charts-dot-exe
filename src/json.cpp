@@ -554,8 +554,12 @@ Dataset from_json_value(const Json &j, const LoadOpts &o) {
 
     if (rows && rows->is_arr()) {
       if (!rows->a.empty() && rows->a[0].is_arr()) {
-        Json copy = *rows; // rows with a header: the top-level array shape
-        Dataset inner = from_json_value(copy, opts);
+        // rows with a header: the top-level array shape.  series_col is
+        // applied once, below, or the inner call's renumbering would leave
+        // the outer one looking for a column that is already gone.
+        LoadOpts whole = opts;
+        whole.series_col = -1;
+        Dataset inner = from_json_value(*rows, whole);
         ds.labels = inner.labels;
         ds.series = inner.series;
       } else {
