@@ -291,6 +291,7 @@ Plot make_axes(Scene &sc, Rect r, Rect clip, double lo, double hi, const std::ve
   }
 
   int last_row = -99;
+  double last_ty = 1e9;
   for (double t : ticks) {
     double y = p.Y(t);
     std::string lab = fmt_axis(t);
@@ -299,7 +300,11 @@ Plot make_axes(Scene &sc, Rect r, Rect clip, double lo, double hi, const std::ve
       int yi = static_cast<int>(std::lround(y));
       sf.hline(p.ox - 5, p.ox - 2, yi, Ink(S.axis));
       if (o.grid && yi < p.ph - 1) sf.dotted_h(p.ox, p.ox + p.pw - 1, yi, Ink(S.grid), 4);
+      // The top label is pulled down into the panel; in a short one that can
+      // land it on the label below.  The tick stays, the label goes.
       double ty = std::max<double>(clip.y, p.celly(y) - 0.5);
+      if (last_ty - ty < 0.95) continue;
+      last_ty = ty;
       sc.text(gx - 1.5 - len, ty, lab, S.tick);
     } else {
       int row = static_cast<int>(std::floor(p.celly(y)));
