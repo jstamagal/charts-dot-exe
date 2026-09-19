@@ -198,7 +198,7 @@ private:
   bool unsaved() const {
     if (deck_.dirty) return true;
     for (const auto &s : deck_.slides)
-      for (Block *b : chart_blocks(const_cast<Slide &>(s)))
+      for (const Block *b : chart_blocks(s))
         if (b->data_dirty) return true;
     return false;
   }
@@ -981,8 +981,9 @@ private:
       o.cur_index = row_;
       o.cur_series = col_ > 0 ? col_ - 1 : -1;
     }
-    Dataset work = ds;
-    if (chart_h >= 8) render_chart(sc, Rect{1, 0, W - 2 - (S.slide_bg == BG_NONE ? 0 : 2), chart_h}, work, o);
+    // render_chart writes nothing but series colours, which the sheet's
+    // header wants too: no copy of the data per frame.
+    if (chart_h >= 8) render_chart(sc, Rect{1, 0, W - 2 - (S.slide_bg == BG_NONE ? 0 : 2), chart_h}, ds, o);
 
     Canvas &cv = sc.cv;
     int y0 = H - 1 - sheet_h;
@@ -1044,8 +1045,6 @@ private:
       }
       if (x <= in.x + in.w) cv.put(x - 1, y, rule, S.table_rule);
     };
-    // work holds the colours render_chart assigned
-    for (std::size_t s = 0; s < ds.series.size() && s < work.series.size(); s++) ds.series[s].color = work.series[s].color;
     draw_row(-1, in.y);
     for (int i = 0; i < body_rows && top_ + i < R; i++) draw_row(top_ + i, in.y + 1 + i);
     if (R > body_rows) {

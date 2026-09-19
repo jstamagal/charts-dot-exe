@@ -513,14 +513,6 @@ std::string csv_field(const std::string &f, char delim) {
   return o + "\"";
 }
 
-std::string num_text(double v) {
-  if (!std::isfinite(v)) return "";
-  char b[40];
-  if (v == std::floor(v) && std::fabs(v) < 1e15) std::snprintf(b, sizeof b, "%.0f", v);
-  else std::snprintf(b, sizeof b, "%.12g", v);
-  return b;
-}
-
 std::string read_file(const std::string &path) {
   std::ifstream f(path, std::ios::binary);
   if (!f) return "";
@@ -554,7 +546,7 @@ std::string dataset_to_csv(const Dataset &ds, const std::string &original, char 
   }
   for (std::size_t i = 0; i < ds.nrows(); i++) {
     std::string row = csv_field(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1), delim);
-    for (const auto &s : ds.series) row += d + (i < s.v.size() ? num_text(s.v[i]) : "");
+    for (const auto &s : ds.series) row += d + (i < s.v.size() ? fmt_raw(s.v[i]) : "");
     out += row + "\n";
   }
   return out;

@@ -106,6 +106,7 @@ Deck deck_from_files(const FileSlides &fs, const LoadOpts &lo);
 
 // Every chart block of a slide, depth first.
 std::vector<Block *> chart_blocks(Slide &s);
+std::vector<const Block *> chart_blocks(const Slide &s);
 // Every block that holds something (chart, text, stat): the focus order.
 std::vector<Block *> leaf_blocks(Slide &s);
 

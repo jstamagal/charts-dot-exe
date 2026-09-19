@@ -773,7 +773,8 @@ struct Parser {
   }
 };
 
-void collect(std::vector<Block> &blocks, std::vector<Block *> &out) {
+// Blocks and their pointers, const or not alike.
+template <class Blocks, class Out> void collect(Blocks &blocks, Out &out) {
   for (auto &b : blocks) {
     if (b.kind == Block::CHART) out.push_back(&b);
     else collect(b.kids, out);
@@ -930,6 +931,12 @@ std::vector<Block *> leaf_blocks(Slide &s) {
 
 std::vector<Block *> chart_blocks(Slide &s) {
   std::vector<Block *> out;
+  collect(s.blocks, out);
+  return out;
+}
+
+std::vector<const Block *> chart_blocks(const Slide &s) {
+  std::vector<const Block *> out;
   collect(s.blocks, out);
   return out;
 }

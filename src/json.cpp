@@ -427,14 +427,6 @@ void write_string(std::string &out, const std::string &raw) {
   out += '"';
 }
 
-void write_number(std::string &out, double n) {
-  if (!std::isfinite(n)) { out += "null"; return; }
-  char b[40];
-  if (n == std::floor(n) && std::fabs(n) < 1e15) std::snprintf(b, sizeof b, "%.0f", n);
-  else std::snprintf(b, sizeof b, "%.12g", n);
-  out += b;
-}
-
 bool scalar(const Json &j) { return !j.is_arr() && !j.is_obj(); }
 
 void write_value(std::string &out, const Json &j, int depth) {
@@ -443,7 +435,7 @@ void write_value(std::string &out, const Json &j, int depth) {
   switch (j.t) {
   case Json::NUL: out += "null"; break;
   case Json::BOOL: out += j.b ? "true" : "false"; break;
-  case Json::NUM: write_number(out, j.n); break;
+  case Json::NUM: out += std::isfinite(j.n) ? fmt_raw(j.n) : "null"; break;
   case Json::STR: write_string(out, j.s); break;
   case Json::ARR: {
     if (j.a.empty()) { out += "[]"; break; }

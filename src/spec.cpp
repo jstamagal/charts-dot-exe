@@ -175,7 +175,9 @@ static void set_field(ChartSpec &s, const std::string &rawkey, const Json &v) {
     s.has_palette = true;
 
   } else if (key == "frame" || key == "border" || key == "box") {
-    std::string f = lower(trim(json_str(v, rawkey)));
+    // "box": true is how a text block asks for a window; a chart already is
+    // one, so on/off is all a boolean can mean here.
+    std::string f = v.is_bool() ? (v.b ? "double" : "none") : lower(trim(json_str(v, rawkey)));
     if (!valid_frame(f))
       throw std::runtime_error("chart spec: frame \"" + f +
                                "\" is not one of double, single, heavy, ascii, none");

@@ -228,6 +228,12 @@ printf 'k,v\n  # an indented comment\na,1\n\t#another\nb,2\n' > "$TMP/cmt.csv"
 "$BIN" "$TMP/cmt.csv" --describe < /dev/null > "$TMP/cmt.out" 2>&1
 has "an indented # line is a comment, as the #chart scanner has it" "$TMP/cmt.out" "rows:    2"
 
+echo "== box on a chart means what it means on a text block"
+printf '{"slides":[{"title":"t","data":"'"$EX"'/revenue.csv","box":true},{"title":"u","data":"'"$EX"'/revenue.csv","box":false},{"title":"v","data":"'"$EX"'/revenue.csv","box":"single"}]}' > "$TMP/box.json"
+"$BIN" "$TMP/box.json" --check < /dev/null > "$TMP/box.out" 2>&1; check "box true/false/single on a chart: clean" "$?" "0"
+"$BIN" "$TMP/box.json" --print --slide 2 -w 60 -H 16 --no-color < /dev/null > "$TMP/box2.out" 2>&1
+hasnt "box false: no frame" "$TMP/box2.out" "╔"
+
 echo "== every character takes one cell"
 printf 'k,v\n日本語ラベル,3\némoji 🎉 label,4\ne\xcc\x81t\xe2\x80\xaeoile,5\n' > "$TMP/wide.csv"
 "$BIN" "$TMP/wide.csv" -t hbar --print -w 60 -H 12 --no-color < /dev/null > "$TMP/wide.out" 2>/dev/null; check "wide labels: exit 0" "$?" "0"

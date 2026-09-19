@@ -44,7 +44,7 @@ void text_size(const Args &a, const Deck &d, int &W, int &H) {
   W = tty ? ts.w : 100;
   H = tty ? ts.h - 1 : 32; // leave the shell its prompt line
   if (d.implicit && d.slides.size() == 1) {
-    std::vector<Block *> c = chart_blocks(const_cast<Slide &>(d.slides[0]));
+    std::vector<const Block *> c = chart_blocks(d.slides[0]);
     if (c.size() == 1) {
       const ChartSpec &s = c[0]->ds.spec;
       if (s.has_width) W = s.width;
