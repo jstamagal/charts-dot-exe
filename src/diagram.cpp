@@ -397,8 +397,35 @@ void draw_flow(Scene &sc, Rect r, const Flow &f, uint8_t bg) {
         label.y = r.y + t0.y / sy - 1.5;
       }
       if (std::fabs(s0.x - t0.x) < 1 || std::fabs(s0.y - t0.y) < 1) path = {s0, t0};
+    } else if (back[e] || b.layer < a.layer) {
+      // A loop goes round the outside: over the top of a left-to-right flow,
+      // down the right of a top-to-bottom one, labelled on that outer lane
+      // clear of every box it passes.
+      int far_right = 0, top = 1 << 20, bottom = 0;
+      for (const Placed &p : box)
+        if (p.layer >= std::min(a.layer, b.layer) && p.layer <= std::max(a.layer, b.layer)) {
+          far_right = std::max(far_right, p.r.x + p.r.w);
+          top = std::min(top, p.r.y);
+          bottom = std::max(bottom, p.r.y + p.r.h);
+        }
+      if (down) {
+        const int edge = far_right + shw + 1;
+        const double lane = std::min((edge - r.x) * sx + (fine ? 4 : 0), (r.w - 1) * sx - 1);
+        Pt s = P(a.r.x + a.r.w + shw, a.r.y + a.r.h / 2.0), t = P(b.r.x + b.r.w + (fine ? 0 : 1), b.r.y + b.r.h / 2.0);
+        path = {s, {lane, s.y}, {lane, t.y}, t};
+        label = Pt{r.x + lane / sx + 1, r.y + (s.y + t.y) / 2 / sy - 0.5};
+        label_align = -1;
+      } else {
+        double lane = (top - r.y - 1) * sy + sy / 2;
+        if (top - r.y < 2) lane = (bottom + shh - r.y) * sy + sy / 2; // no room above
+        const bool over = lane < (a.r.y - r.y) * sy;
+        Pt s = P(a.r.x + a.r.w / 2.0, over ? a.r.y - (fine ? 0.1 : 1) : a.r.y + a.r.h + shh);
+        Pt t = P(b.r.x + b.r.w / 2.0, over ? b.r.y - (fine ? 0.1 : 1) : b.r.y + b.r.h + shh);
+        path = {s, {s.x, lane}, {t.x, lane}, t};
+        label = Pt{r.x + (s.x + t.x) / 2 / sx, r.y + lane / sy - 1.5};
+      }
     } else {
-      // back and sideways: straight from the edge of one box to the edge of the other
+      // side by side at the same step: straight from the edge of one box to the edge of the other
       auto centre = [&](const Placed &p) { return P(p.r.x + p.r.w / 2.0, p.r.y + p.r.h / 2.0); };
       auto rim = [&](const Placed &p, Pt toward) {
         Pt c = centre(p);

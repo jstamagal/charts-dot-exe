@@ -1382,8 +1382,17 @@ Plot draw_hist(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
   }
   if (cnt == 0) return Plot();
   if (!(hi > lo)) hi = lo + 1;
-  int bins = std::max(1, std::min(60, o.bins));
-  double step = (hi - lo) / bins;
+  // Buckets on round numbers (0, 2, 4 ... not 0.7, 2.46, 4.22), about as many
+  // as asked for.
+  const int want = std::max(1, std::min(60, o.bins));
+  double step = nice_step((hi - lo) / want);
+  if (!(step > 0) || !std::isfinite(step)) step = (hi - lo) / want;
+  double start = std::floor(lo / step) * step;
+  if (!std::isfinite(start)) start = lo;
+  int bins = static_cast<int>(std::ceil((hi - start) / step - 1e-9));
+  if (!(bins >= 1)) bins = 1;
+  if (start + bins * step <= hi) bins++; // buckets are [a, b): the top value needs one of its own
+  bins = std::min(bins, 60);
 
   Dataset h;
   Series hs;
@@ -1393,12 +1402,12 @@ Plot draw_hist(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
   for (double v : s.v) {
     if (!std::isfinite(v)) continue;
     // halves, so a range as wide as the doubles themselves cannot overflow
-    double f = (v / 2 - lo / 2) / (hi / 2 - lo / 2);
+    double f = (v / 2 - start / 2) / (step / 2);
     if (!std::isfinite(f)) f = 0;
-    int b = std::max(0, std::min(bins - 1, static_cast<int>(std::max(0.0, std::min(1.0, f)) * bins)));
+    int b = std::max(0, std::min(bins - 1, static_cast<int>(std::max(0.0, std::min<double>(bins, std::floor(f))))));
     hs.v[static_cast<std::size_t>(b)] += 1;
   }
-  for (int b = 0; b < bins; b++) h.labels.push_back(fmt_axis(lo + b * step));
+  for (int b = 0; b < bins; b++) h.labels.push_back(fmt_axis(start + b * step));
   h.series.push_back(hs);
 
   RenderOpts o2 = o;
