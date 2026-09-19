@@ -226,6 +226,16 @@ printf '{"slides":[{"title":"t","type":"table","data":"tab.csv"}],"display":{"si
 "$BIN" "$TMP/tabdeck.json" --check > "$TMP/tabchk.out" 2>&1
 has "table: --check warns when columns are cut" "$TMP/tabchk.out" "columns; give it more width"
 
+echo "== bars on an axis that skips zero are drawn broken"
+printf 'k,v\na,116\nb,114\n' > "$TMP/brk.csv"
+"$BIN" "$TMP/brk.csv" --min 110 --print -w 60 -H 14 --no-color > "$TMP/brk.out" 2>&1; check "broken axis: exit 0" "$?" "0"
+has "broken axis: the axis carries a break" "$TMP/brk.out" "≈"
+"$BIN" "$TMP/brk.csv" -t hbar --min 110 --print -w 60 -H 14 --no-color > "$TMP/brkh.out" 2>&1
+has "broken axis: hbar too" "$TMP/brkh.out" "≈"
+"$BIN" "$TMP/brk.csv" --print -w 60 -H 14 --no-color > "$TMP/nobrk.out" 2>&1
+hasnt "an axis from zero is not broken" "$TMP/nobrk.out" "≈"
+"$BIN" "$TMP/brk.csv" --min 110 --png "$TMP/brk.png" > /dev/null 2>&1; check "broken axis: png renders" "$?" "0"
+
 echo "== a data file that says how it wants to be drawn"
 printf '#chart: type=pie3d, title="Disk use", values\nname,gb\nroot,40\nhome,120\nvar,15\n' > "$TMP/spec.csv"
 "$BIN" --describe "$TMP/spec.csv" > "$TMP/spec.txt" 2>&1; check "#chart: csv describes" "$?" "0"

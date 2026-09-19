@@ -475,6 +475,43 @@ void bar3d(const Plot &p, double x0, double x1, double ya, double yb, Ink front,
   }
 }
 
+// Bars are measured from zero.  When the axis starts above it they are cut
+// short, and the chart says so the way print did: a torn gap across the bars
+// just off the baseline and a double slash through the axis.
+void axis_break(const Plot &p, bool horizontal) {
+  Surface &sf = *p.sf;
+  const Ink ink(S.axis);
+  const int len = horizontal ? p.ph : p.pw;
+  // along the break line from the value axis (-1 is the axis), across it from zero
+  auto at = [&](int along, int across) {
+    return horizontal ? Pt{static_cast<double>(p.ox + across), static_cast<double>(p.ph - 1 - along)}
+                      : Pt{static_cast<double>(p.ox + along), static_cast<double>(p.ph - across)};
+  };
+  auto clear = [&](Pt q) {
+    int x = static_cast<int>(q.x), y = static_cast<int>(q.y);
+    sf.erase(x, y, x + 1, y + 1); // the panel shows through
+  };
+  if (!p.fine) {
+    for (int t = 0; t < len; t++) clear(at(t, 2));
+    Pt c = at(0, 2);
+    int cx = horizontal ? static_cast<int>(p.cellx(c.x)) : p.cells.x;
+    int cy = horizontal ? p.cells.bottom() : static_cast<int>(p.celly(c.y));
+    p.sc->cv.put(cx, cy, U'≈', S.axis);
+    return;
+  }
+  const int off = std::max(8, std::min(14, len / 10));
+  for (int t = 0; t < len; t++) {
+    int w = std::abs(t % 8 - 4) - 2; // a zigzag, 2 px either way
+    for (int k = -2; k <= 1; k++) clear(at(t, off + w + k));
+  }
+  // the axis itself: a gap and two slashes across it
+  for (int k = -3; k <= 3; k++) clear(at(-1, off + k));
+  for (int s : {-2, 2}) {
+    Pt a = at(-6, off + s - 2), b = at(4, off + s + 2);
+    sf.line(a.x, a.y, b.x, b.y, ink);
+  }
+}
+
 // Where the editing cursor is: a drop line to the axis and a fat ring.
 void ring_cursor(const Plot &p, double x, double y) {
   if (!p.fine) { p.sf->ring(x, y, 1.5, Ink(15)); return; }
@@ -579,6 +616,7 @@ Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, b
       }
     }
   }
+  if (lo > 0) axis_break(p, false);
   return p;
 }
 
@@ -710,6 +748,7 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
       }
     }
   }
+  if (lo > 0) axis_break(p, true);
   return p;
 }
 
