@@ -44,6 +44,7 @@ struct RenderOpts {
 
   // The data point under the editing cursor, ringed so it can be found.
   int cur_series = -1, cur_index = -1;
+  int frame_color = -1; // the frame's colour; -1 = the theme's (the focused block gets the accent)
 };
 
 // Spec on top of the defaults.  Fields the spec leaves alone keep the value

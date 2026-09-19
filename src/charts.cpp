@@ -1690,7 +1690,7 @@ void render_chart(Scene &sc, Rect r, Dataset &data, const RenderOpts &opts) {
     else if (o.frame == "heavy") st = BOX_HEAVY;
     else if (o.frame == "ascii") st = BOX_ASCII;
     if (sc.mode().ascii) st = BOX_ASCII;
-    cv.box(r.x, r.y, r.w, r.h, st, S.frame);
+    cv.box(r.x, r.y, r.w, r.h, st, o.frame_color >= 0 ? static_cast<uint8_t>(o.frame_color) : S.frame);
     inner = Rect{r.x + 2, r.y + 1, r.w - 4, r.h - 2};
   } else if (S.slide_bg != BG_NONE) {
     sc.panel(r, S.panel_bg);

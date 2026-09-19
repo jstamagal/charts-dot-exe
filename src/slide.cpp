@@ -129,7 +129,7 @@ struct TextLine {
   char32_t bullet = 0;
 };
 
-void draw_text_block(Scene &sc, const Block &b, Rect r) {
+void draw_text_block(Scene &sc, const Block &b, Rect r, uint8_t frame) {
   const bool px = sc.mode().pixel;
   uint8_t base = b.color >= 0 ? static_cast<uint8_t>(b.color) : S.text;
   if (b.box) {
@@ -137,7 +137,7 @@ void draw_text_block(Scene &sc, const Block &b, Rect r) {
       sc.cv.shadow(r.x, r.y, r.w, r.h);
       sc.panel(r, S.panel_bg);
     }
-    sc.cv.box(r.x, r.y, r.w, r.h, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, S.frame);
+    sc.cv.box(r.x, r.y, r.w, r.h, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, frame);
     if (!b.title.empty()) sc.cv.text_c(r.x + 2, r.y, r.w - 4, " " + b.title + " ", S.title);
     r = Rect{r.x + 2, r.y + 1, r.w - 4, r.h - 2};
     if (b.color < 0 && S.slide_bg != BG_NONE) base = contrast_on(S.panel_bg) == 0 ? 0 : 7;
@@ -209,12 +209,12 @@ void draw_text_block(Scene &sc, const Block &b, Rect r) {
   }
 }
 
-void draw_stat(Scene &sc, const Block &b, Rect r) {
+void draw_stat(Scene &sc, const Block &b, Rect r, uint8_t frame) {
   if (S.slide_bg != BG_NONE) {
     sc.cv.shadow(r.x, r.y, r.w, r.h);
     sc.panel(r, S.panel_bg);
   }
-  sc.cv.box(r.x, r.y, r.w, r.h, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, S.frame);
+  sc.cv.box(r.x, r.y, r.w, r.h, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, frame);
   if (!b.title.empty()) sc.cv.text_c(r.x + 2, r.y, r.w - 4, " " + b.title + " ", S.title);
   Rect in{r.x + 2, r.y + 1, r.w - 4, r.h - 2};
   if (in.w < 2 || in.h < 1) return;
@@ -249,20 +249,16 @@ void draw_blocks(Scene &sc, Deck &d, std::vector<Block> &blocks, const SlideView
     Rect r = b.r;
     sc.where = b.path;
     if (r.w < 4 || r.h < 2) { sc.fit_note("no room left for this block on the slide"); continue; }
+    const uint8_t frame = &b == focus ? S.accent : S.frame; // the focused block stands out
     switch (b.kind) {
     case Block::ROWS:
     case Block::COLS: draw_blocks(sc, d, b.kids, v, focus); break;
     case Block::TEXT:
     case Block::STAT: {
-      const uint8_t frame = S.frame;
-      if (&b == focus) {
-        S.frame = S.accent;
-        if (b.kind == Block::TEXT && !b.box)
-          sc.cv.box(r.x - 1, r.y - 1, r.w + 2, r.h + 2, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, S.accent);
-      }
-      if (b.kind == Block::TEXT) draw_text_block(sc, b, r);
-      else draw_stat(sc, b, r);
-      S.frame = frame;
+      if (&b == focus && b.kind == Block::TEXT && !b.box)
+        sc.cv.box(r.x - 1, r.y - 1, r.w + 2, r.h + 2, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, S.accent);
+      if (b.kind == Block::TEXT) draw_text_block(sc, b, r, frame);
+      else draw_stat(sc, b, r, frame);
       break;
     }
     case Block::SHAPES:
@@ -278,7 +274,7 @@ void draw_blocks(Scene &sc, Deck &d, std::vector<Block> &blocks, const SlideView
           sc.panel(in, S.panel_bg);
           under = S.panel_bg;
         }
-        sc.cv.box(in.x, in.y, in.w, in.h, sc.mode().ascii ? BOX_ASCII : BOX_DOUBLE, &b == focus ? S.accent : S.frame);
+        sc.cv.box(in.x, in.y, in.w, in.h, sc.mode().ascii ? BOX_ASCII : BOX_DOUBLE, frame);
         if (!b.title.empty()) sc.cv.text_c(in.x + 2, in.y, in.w - 4, " " + b.title + " ", S.title);
         in = Rect{in.x + 2, in.y + 1, in.w - 4, in.h - 2};
       } else {
@@ -298,9 +294,8 @@ void draw_blocks(Scene &sc, Deck &d, std::vector<Block> &blocks, const SlideView
       r.h -= shadow_h();
       RenderOpts o = block_opts(d, b, v);
       o.color = o.color && sc.mode().color;
-      const uint8_t frame = S.frame;
+      o.frame_color = frame;
       if (&b == focus) {
-        S.frame = S.accent;
         o.cur_series = v.cur_series;
         o.cur_index = v.cur_index;
       }
@@ -316,11 +311,10 @@ void draw_blocks(Scene &sc, Deck &d, std::vector<Block> &blocks, const SlideView
         msg.align = 0;
         msg.middle = true;
         msg.color = 15;
-        draw_text_block(sc, msg, Rect{r.x + 3, r.y + 1, r.w - 6, r.h - 2});
+        draw_text_block(sc, msg, Rect{r.x + 3, r.y + 1, r.w - 6, r.h - 2}, S.frame);
       } else {
         render_chart(sc, r, b.ds, o);
       }
-      S.frame = frame;
       break;
     }
     }
@@ -407,7 +401,7 @@ void render_slide(Scene &sc, Deck &d, int index, const SlideView &v) {
     Block sub;
     sub.lines = split(s.subtitle, '\n');
     sub.align = 0;
-    if (!s.subtitle.empty()) draw_text_block(sc, sub, Rect{6, y, W - 12, std::max(1, bottom - y - 1)});
+    if (!s.subtitle.empty()) draw_text_block(sc, sub, Rect{6, y, W - 12, std::max(1, bottom - y - 1)}, S.frame);
   } else {
     if (!s.title.empty()) {
       int k = px ? 2 : 1;
@@ -437,7 +431,7 @@ void render_slide(Scene &sc, Deck &d, int index, const SlideView &v) {
     n.box = true;
     n.title = "notes";
     n.lines = split(s.notes, '\n');
-    draw_text_block(sc, n, r);
+    draw_text_block(sc, n, r, S.frame);
   }
 
   if (v.chrome) {

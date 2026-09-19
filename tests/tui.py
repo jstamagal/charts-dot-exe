@@ -409,6 +409,24 @@ check("and quits", s.wait_exit() is not None)
 s.kill()
 
 # ---------------------------------------------------------------------------
+print("== focus")
+s = Session([os.path.join(EXAMPLES, "deck.json"), "--gfx", "cells"])
+s.keys("RIGHT", "RIGHT")  # a pie chart, a stat and text
+frame = re.compile(rb"\x1b\[([0-9;]*)m\xe2\x95\x94")  # the colour the chart's double frame starts in
+last = lambda: set(frame.findall(s.raw[s.raw.rfind(b"\x1b[H"):]))
+before = last()
+s.keys("TAB")
+after = last()
+check("tab puts the focused chart in the accent colour", any(b"1;36" in c for c in after) and not any(b"1;36" in c for c in before),
+      "%r -> %r" % (before, after))
+s.keys("TAB")
+now = last()
+check("and focus moving on leaves the theme as it was", any(b"1;37" in c for c in now) and not any(b"1;36" in c for c in now), repr(now))
+s.keys("q")
+s.wait_exit()
+s.kill()
+
+# ---------------------------------------------------------------------------
 print("== the terminal survives")
 s = Session([deck, "--gfx", "cells"])
 s.keys("q")
