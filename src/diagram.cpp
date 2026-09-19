@@ -27,6 +27,7 @@ std::vector<Pt> shifted(const std::vector<Pt> &v, double dx, double dy) {
 // Dashes read as "maybe", "later" or "not yet".
 void stroke(Surface &sf, Pt a, Pt b, Ink k, int w, bool dash, bool fine) {
   if (!dash) { sf.line(a.x, a.y, b.x, b.y, k, w); return; }
+  if (!clip_segment(a, b, -8, -8, sf.w() + 8, sf.h() + 8)) return; // dash only what shows
   const double len = std::hypot(b.x - a.x, b.y - a.y), on = fine ? 7 : 2, off = fine ? 5 : 1;
   if (len < 1e-9) return;
   for (double t = 0; t < len; t += on + off) {

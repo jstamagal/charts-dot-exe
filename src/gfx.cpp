@@ -33,6 +33,37 @@ Ink top_ink(uint8_t c) {
   return Ink(static_cast<uint8_t>(c + 8));
 }
 
+// ---- geometry ------------------------------------------------------------------
+
+// A double to an int in [lo, hi]: clamped before the cast, which is only
+// defined for values that fit.  NaN goes to lo.
+static int clamp_int(double v, int lo, int hi) {
+  if (!(v > lo)) return lo;
+  if (v > hi) return hi;
+  return static_cast<int>(v);
+}
+
+// Liang-Barsky.
+bool clip_segment(Pt &a, Pt &b, double x0, double y0, double x1, double y1) {
+  const double dx = b.x - a.x, dy = b.y - a.y;
+  if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(a.x) || !std::isfinite(a.y)) return false;
+  const double p[4] = {-dx, dx, -dy, dy}, q[4] = {a.x - x0, x1 - a.x, a.y - y0, y1 - a.y};
+  double t0 = 0, t1 = 1;
+  for (int i = 0; i < 4; i++) {
+    if (p[i] == 0) {
+      if (q[i] < 0) return false;
+      continue;
+    }
+    const double t = q[i] / p[i];
+    if (p[i] < 0) { if (t > t1) return false; t0 = std::max(t0, t); }
+    else { if (t < t0) return false; t1 = std::min(t1, t); }
+  }
+  const Pt start{a.x + t0 * dx, a.y + t0 * dy};
+  b = Pt{a.x + t1 * dx, a.y + t1 * dy};
+  a = start;
+  return true;
+}
+
 // ---- surface -----------------------------------------------------------------
 
 Surface::Surface(int cells_w, int cells_h, int sx, int sy)
@@ -59,10 +90,8 @@ void Surface::erase(int x0, int y0, int x1, int y1) {
 void Surface::rect(double x0, double y0, double x1, double y1, Ink k) {
   if (x1 < x0) std::swap(x0, x1);
   if (y1 < y0) std::swap(y0, y1);
-  int ax = std::max(0, static_cast<int>(std::lround(x0)));
-  int ay = std::max(0, static_cast<int>(std::lround(y0)));
-  int bx = std::min(W_, static_cast<int>(std::lround(x1)));
-  int by = std::min(H_, static_cast<int>(std::lround(y1)));
+  const int ax = clamp_int(std::round(x0), 0, W_), ay = clamp_int(std::round(y0), 0, H_);
+  const int bx = clamp_int(std::round(x1), 0, W_), by = clamp_int(std::round(y1), 0, H_);
   for (int y = ay; y < by; y++)
     for (int x = ax; x < bx; x++) px_[idx(x, y)] = k;
 }
@@ -90,8 +119,12 @@ void Surface::dotted_v(int x, int y0, int y1, Ink k, int gap) {
 }
 
 void Surface::line(double x0, double y0, double x1, double y1, Ink k, int width) {
-  int ax = static_cast<int>(std::lround(x0)), ay = static_cast<int>(std::lround(y0));
-  int bx = static_cast<int>(std::lround(x1)), by = static_cast<int>(std::lround(y1));
+  // Only the part over the surface is walked: a line to (1e9, 0) is short work.
+  Pt a{x0, y0}, b{x1, y1};
+  const double m = width + 2.0;
+  if (!clip_segment(a, b, -m, -m, W_ + m, H_ + m)) return;
+  int ax = static_cast<int>(std::lround(a.x)), ay = static_cast<int>(std::lround(a.y));
+  int bx = static_cast<int>(std::lround(b.x)), by = static_cast<int>(std::lround(b.y));
   int dx = std::abs(bx - ax), dy = -std::abs(by - ay);
   int stepx = ax < bx ? 1 : -1, stepy = ay < by ? 1 : -1;
   int err = dx + dy;
@@ -113,8 +146,8 @@ void Surface::poly(const std::vector<Pt> &p, Ink k) {
   if (p.size() < 3) return;
   double miny = p[0].y, maxy = p[0].y;
   for (const auto &q : p) { miny = std::min(miny, q.y); maxy = std::max(maxy, q.y); }
-  int y0 = std::max(0, static_cast<int>(std::floor(miny)));
-  int y1 = std::min(H_ - 1, static_cast<int>(std::ceil(maxy)));
+  if (!(maxy >= 0) || !(miny < H_)) return; // off the surface, or not numbers
+  const int y0 = clamp_int(std::floor(miny), 0, H_ - 1), y1 = clamp_int(std::ceil(maxy), 0, H_ - 1);
   std::vector<double> xs;
   for (int y = y0; y <= y1; y++) {
     double sy = y + 0.5;
@@ -126,8 +159,7 @@ void Surface::poly(const std::vector<Pt> &p, Ink k) {
     }
     std::sort(xs.begin(), xs.end());
     for (std::size_t i = 0; i + 1 < xs.size(); i += 2) {
-      int xa = std::max(0, static_cast<int>(std::lround(xs[i])));
-      int xb = std::min(W_, static_cast<int>(std::lround(xs[i + 1])));
+      const int xa = clamp_int(std::round(xs[i]), 0, W_), xb = clamp_int(std::round(xs[i + 1]), 0, W_);
       for (int x = xa; x < xb; x++) px_[idx(x, y)] = k;
     }
   }

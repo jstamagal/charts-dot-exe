@@ -1349,16 +1349,17 @@ Plot draw_hist(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
   if (cnt == 0) return Plot();
   if (!(hi > lo)) hi = lo + 1;
   // Buckets on round numbers (0, 2, 4 ... not 0.7, 2.46, 4.22), about as many
-  // as asked for.
+  // as asked for.  All in halves, so a range as wide as the doubles themselves
+  // cannot overflow on the way.
   const int want = std::max(1, std::min(60, o.bins));
-  double step = nice_step((hi - lo) / want);
-  if (!(step > 0) || !std::isfinite(step)) step = (hi - lo) / want;
-  double start = std::floor(lo / step) * step;
-  if (!std::isfinite(start)) start = lo;
-  int bins = static_cast<int>(std::ceil((hi - start) / step - 1e-9));
-  if (!(bins >= 1)) bins = 1;
-  if (start + bins * step <= hi) bins++; // buckets are [a, b): the top value needs one of its own
-  bins = std::min(bins, 60);
+  const double half = hi / 2 - lo / 2;
+  double step = nice_step(half / want); // half a bucket
+  if (!(step > 0) || !std::isfinite(step)) step = half / want;
+  double start = std::floor(lo / 2 / step) * step; // half the first edge
+  if (!std::isfinite(start)) start = lo / 2;
+  const double need = std::ceil((hi / 2 - start) / step - 1e-9);
+  int bins = std::isfinite(need) ? static_cast<int>(std::max(1.0, std::min(60.0, need))) : want;
+  if (bins < 60 && start + bins * step <= hi / 2) bins++; // buckets are [a, b): the top value needs its own
 
   Dataset h;
   Series hs;
@@ -1367,13 +1368,15 @@ Plot draw_hist(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
   hs.v.assign(static_cast<std::size_t>(bins), 0);
   for (double v : s.v) {
     if (!std::isfinite(v)) continue;
-    // halves, so a range as wide as the doubles themselves cannot overflow
-    double f = (v / 2 - start / 2) / (step / 2);
+    double f = (v / 2 - start) / step;
     if (!std::isfinite(f)) f = 0;
     int b = std::max(0, std::min(bins - 1, static_cast<int>(std::max(0.0, std::min<double>(bins, std::floor(f))))));
     hs.v[static_cast<std::size_t>(b)] += 1;
   }
-  for (int b = 0; b < bins; b++) h.labels.push_back(fmt_axis(start + b * step));
+  for (int b = 0; b < bins; b++) {
+    double edge = (start + b * step) * 2;
+    h.labels.push_back(fmt_axis(std::isfinite(edge) ? edge : (start + b * step)));
+  }
   h.series.push_back(hs);
 
   RenderOpts o2 = o;

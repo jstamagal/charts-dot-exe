@@ -47,6 +47,10 @@ struct Pt {
   double x = 0, y = 0;
 };
 
+// Cut the segment a-b to the box [x0, x1] x [y0, y1].  False when none of it
+// is inside (or a coordinate is not a finite number).
+bool clip_segment(Pt &a, Pt &b, double x0, double y0, double x1, double y1);
+
 class Surface {
 public:
   Surface(int cells_w, int cells_h, int sx, int sy);

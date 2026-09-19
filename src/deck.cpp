@@ -307,6 +307,10 @@ struct Parser {
         warn(gp, "reaches outside the block's 12 x 12 grid and is cut off there");
         break;
       }
+    for (Pt &p : s.pts) { // what is cut off anyway need not be astronomical
+      p.x = std::max(-12.0, std::min(24.0, p.x));
+      p.y = std::max(-12.0, std::min(24.0, p.y));
+    }
     for (const auto &kv : j.o) {
       const std::string &k = kv.first;
       const Json &v = kv.second;
