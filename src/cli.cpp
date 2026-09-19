@@ -58,6 +58,52 @@ void print_themes(FILE *f) {
   std::fprintf(f, "light    grey desktop, white chart windows, dark ink\n");
 }
 
+const char *demo_deck() {
+  return R"({
+  "title": "charts --demo",
+  "footer": "charts --demo   -   n notes   ? keys   q quit",
+  "slides": [
+    {"title": "charts", "subtitle": "DOS-style chart decks for the Linux console\n\nleft and right to page  -  n for the speaker's notes  -  ? for every key  -  q to quit",
+     "notes": "This deck is built into the binary: charts --demo. Everything in it is a JSON file an agent could have written."},
+    {"title": "December shipped three times as many cabinets as January",
+     "blocks": [
+       {"cols": [{"stat": "4,639", "label": "cabinets shipped", "delta": "+61% on 1990"},
+                 {"stat": "640", "label": "December alone", "delta": "+205% since Jan"},
+                 {"stat": "4.4%", "label": "returned", "delta": "-1.1 pt"}], "at": [0, 0, 12, 3]},
+       {"type": "bar", "depth": 3, "ylabel": "cabinets", "colors": {"Dec": "white"}, "at": [0, 3, 8, 9],
+        "annotations": [{"at": "Dec", "text": "best month ever"}],
+        "data": {"labels": ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+                 "series": [{"name": "shipped", "values": [210,238,225,301,344,322,398,441,420,512,588,640]}]}},
+       {"text": ["# The year", "", "- Every quarter beat the last", "- **Laser Llama** carried the spring", "- June wobbled",
+                 "", "> A KPI strip, a chart, words beside it: one slide, one idea."], "at": [8, 3, 4, 9]}],
+     "notes": "Stat tiles colour their deltas. One pinned colour (white) points at December."},
+    {"title": "Doubling the price lifted every title but one",
+     "type": "dumbbell", "values": true, "xlabel": "dollars per cabinet per day",
+     "colors": {"at 25c": "grey", "at 50c": "yellow"},
+     "annotations": [{"at": "Sad Clam", "series": "at 50c", "text": "the only one to fall", "color": "red"}],
+     "data": {"labels": ["Laser Llama", "Turbo Tapir", "Mega Marmot", "Pixel Pigeon", "Sad Clam"],
+              "series": [{"name": "at 25c", "values": [103, 80, 72, 48, 18]}, {"name": "at 50c", "values": [151, 112, 96, 61, 11]}]},
+     "notes": "Before and after: the arrow points at the last series."},
+    {"title": "Uptime never fell below 97%, even in June",
+     "type": "bar", "min": 95, "max": 100, "values": true, "depth": 1, "colors": {"Jun": "red"},
+     "annotations": [{"y": 97, "text": "contract floor", "color": "green"}],
+     "data": {"labels": ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+              "series": [{"name": "uptime %", "values": [99.1,99.3,98.9,99.2,99.0,97.2,98.8,99.1,99.4,99.2,98.9,98.7]}]},
+     "notes": "The axis starts at 95, so the bars are drawn torn: nobody reads June as a third of January."},
+    {"title": "How a deck gets made",
+     "flow": ["your data", {"id": "agent", "text": "an agent\nfinds the story"}, "deck.json",
+              {"id": "check", "text": "charts --check\n+ PNGs it reads"}, {"id": "you", "text": "you, paging\nthrough it", "color": "green"}],
+     "labels": {"your data>agent": "CSV", "check>you": "launcher"},
+     "edges": [["your data", "agent"], ["agent", "deck.json"], ["deck.json", "check"], ["check", "you"], ["check", "agent", "fix it"]],
+     "notes": "The human never runs charts by hand: the agent hands over a launcher. This diagram is a flow block: the steps and arrows are named, the layout is done for you."},
+    {"title": "Now yours",
+     "text": ["- **charts --example deck** > deck.json", "- **charts deck.json --check**", "- **charts -h**: the manual, written for agents",
+              "- or install the skill: **make install-skill**"], "size": 2, "valign": "middle"}
+  ]
+}
+)";
+}
+
 void print_example(FILE *f, const std::string &what) {
   if (what == "deck" || what == "d") {
     std::fputs(R"({
@@ -249,7 +295,8 @@ Args parse_args(int argc, char **argv) {
       else if (i + 1 < argc && argv[i + 1][0] != '-') a.example = argv[++i];
       if (a.example != "csv" && a.example != "json" && a.example != "deck" && a.example != "j" && a.example != "d")
         throw UsageError("--example wants csv, json or deck");
-    } else if (name == "--list-types" || name == "--types") a.list_types = true;
+    } else if (name == "--demo") a.demo = true;
+    else if (name == "--list-types" || name == "--types") a.list_types = true;
     else if (name == "--list-palettes" || name == "--palettes") a.list_palettes = true;
     else if (name == "--list-themes" || name == "--themes") a.list_themes = true;
     else if (name == "-q" || name == "--quiet") { /* accepted, nothing to say */ }

@@ -1,11 +1,11 @@
 # charts-dot-exe
 
+![a slide: three big numbers, a stacked bar chart, commentary](docs/img/kpi.png)
+
 Business graphics for the Linux console, the way a VGA card drew them: 16
 colours, hard pixels, dithered shading, a bitmap font, double-line frames and
 drop shadows. An agent writes the deck; you page through it with the arrow
 keys, fix a number in the built-in sheet, pin a note on a bar.
-
-![a slide: three big numbers, a stacked bar chart, commentary](docs/img/kpi.png)
 
 One binary, no dependencies, no X, no Wayland. On a bare console it draws real
 pixels through `/dev/fb0`. Inside kitty, ghostty, wezterm or foot it sends the
@@ -25,6 +25,9 @@ The framebuffer needs you in the `video` group, which a desktop user normally is
 ## Use
 
 ```sh
+charts --demo                    # a built-in deck to page through: arrows, n for notes, q to quit
+charts examples/demo/deck.json   # a deck on disk, its CSVs beside it
+
 charts deck.json                 # present: left/right to page, ? for every key
 charts -i sales.csv costs.csv    # data files straight into the presenter, a slide each
 charts sales.csv -t pie3d        # or just print one chart into the shell
@@ -103,9 +106,13 @@ read — is never overwritten; the sheet says so.
 `depth: 0` is flat. Bars on an axis that does not start at zero are drawn torn.
 `errors` puts whiskers on bars, lines and points from min/max or ± columns.
 
+![before and after: a dot per state, an arrow to where it ended up](docs/img/dumbbell.png)
+
 Beside the charts: `flow` blocks (name the steps and the arrows, the layout is
 done for you) and `shapes` blocks (rectangles, ellipses, polygons, arrows and
 labels on a 12×12 grid, solid, dithered or extruded).
+
+![a flow diagram: steps in boxes, arrows between them, a loop back over the top](docs/img/flow.png)
 
 ![horizontal bars and a donut](docs/img/regions.png)
 

@@ -115,6 +115,10 @@ echo "== examples are valid input"
 "$BIN" --describe "$TMP/sample.csv"  >/dev/null 2>&1; check "example csv parses" "$?" "0"
 "$BIN" --describe "$TMP/sample.json" >/dev/null 2>&1; check "example json parses" "$?" "0"
 mkdir -p "$TMP/exdeck"
+"$BIN" --demo --check < /dev/null > "$TMP/demo.out" 2>&1; check "--demo is a clean deck" "$?" "0"
+has "--demo: no errors, no warnings" "$TMP/demo.out" "0 errors, 0 warnings"
+"$BIN" --demo --png-dir "$TMP/demopng" < /dev/null > /dev/null 2>&1; check "--demo renders" "$?" "0"
+check "--demo: every slide" "$(ls "$TMP/demopng" | wc -l | tr -d ' ')" "6"
 "$BIN" --example deck > "$TMP/exdeck/deck.json"; check "--example deck exits 0" "$?" "0"
 cp "$EX/revenue.csv" "$TMP/exdeck/"
 "$BIN" "$TMP/exdeck/deck.json" --check > "$TMP/exdeck.out" 2>&1
@@ -844,6 +848,9 @@ usage "unknown --gfx"             "$EX/revenue.csv" --gfx nope
 usage "unknown --frame"           "$EX/revenue.csv" --frame wobbly
 usage "option missing its value"  "$EX/revenue.csv" -t
 usage "no input at all"
+has "no input points at --demo" "$TMP/usage.err" "charts --demo"
+usage "--demo with files"         --demo "$EX/revenue.csv"
+usage "--demo has no launcher"    --demo --launcher "$TMP/nope"
 usage "-i without a terminal"     -i "$EX/revenue.csv"
 usage "unknown --example"         --example nope
 grep -q "unknown option" "$TMP/err2" 2>/dev/null || { "$BIN" "$EX/revenue.csv" --bogus 2>"$TMP/err2" >/dev/null; }

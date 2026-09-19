@@ -399,6 +399,16 @@ s.wait_exit()
 s.kill()
 
 # ---------------------------------------------------------------------------
+print("== --demo")
+s = Session(["--demo", "--gfx", "cells"])
+check("--demo opens on its title slide", "q to quit" in s.screen(), s.screen()[:200])
+s.keys("RIGHT")
+check("and pages to the next", "December" in s.screen())
+s.keys("q")
+check("and quits", s.wait_exit() is not None)
+s.kill()
+
+# ---------------------------------------------------------------------------
 print("== the terminal survives")
 s = Session([deck, "--gfx", "cells"])
 s.keys("q")

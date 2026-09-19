@@ -820,6 +820,15 @@ Deck load_deck(const std::string &path, const LoadOpts &lo) {
   return d;
 }
 
+Deck deck_from_text(const std::string &json, const LoadOpts &lo) {
+  Deck d;
+  d.root = parse_json(json);
+  if (!is_deck_json(d.root)) throw std::runtime_error("not a deck (no \"slides\" array)");
+  Parser p{d, lo};
+  p.deck();
+  return d;
+}
+
 Deck deck_from_files(const FileSlides &fs, const LoadOpts &lo) {
   Deck d;
   d.implicit = true;

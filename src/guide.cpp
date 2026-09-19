@@ -320,6 +320,7 @@ WHEN SOMETHING IS OFF
 OPTIONS  (agents only; the launcher passes none)
   --check [--json]   --describe   --png FILE   --png-dir DIR   --print   --slide N
   --launcher NAME    --example [csv|json|deck]   -o FILE   -i (open data files in the presenter)
+  --demo             present a built-in deck (every feature, no files)
   -t TYPE  -T TITLE  -p PALETTE  --theme NAME  --values --legend --grid --shadow (--no-...)
   --frame S  --depth N  --explode [N]  --min V --max V  --prec N  --bins N
   -w N -H N --size CxR  --scale K  --gfx MODE  --ascii  --no-color  --tile

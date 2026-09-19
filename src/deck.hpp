@@ -94,6 +94,8 @@ bool is_deck_file(const std::string &path);
 // Content problems never throw: they land in deck.issues, so an agent sees all
 // of them at once.  Only an unreadable file or broken JSON throws.
 Deck load_deck(const std::string &path, const LoadOpts &lo);
+// A deck held in memory (--demo): no file yet, data paths relative to here.
+Deck deck_from_text(const std::string &json, const LoadOpts &lo);
 
 struct FileSlides {
   std::vector<std::string> files;

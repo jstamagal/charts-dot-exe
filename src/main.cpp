@@ -155,7 +155,8 @@ int main(int argc, char **argv) {
       for (const auto &f : expand_sources({arg}))
         if (!dir || !is_deck_file(f)) files.push_back(f);
     }
-    if (files.empty()) {
+    if (a.demo && !files.empty()) throw UsageError("--demo shows its own deck: give it no files");
+    if (files.empty() && !a.demo) {
       // Nothing named: take a pipe if there is one with something in it.
       bool piped = false;
       if (!is_tty(STDIN_FILENO)) {
@@ -164,20 +165,28 @@ int main(int argc, char **argv) {
       }
       if (piped) files.push_back("-");
       else {
-        std::fprintf(stderr, "charts: no input.  charts -h for help, charts --example deck for a deck to start from\n");
+        std::fputs("charts: no input.  To start:\n"
+                   "  charts --demo                       a short deck, built in: arrows to page, q to quit\n"
+                   "  charts --example deck > deck.json   a deck to start from (charts --example csv > revenue.csv beside it)\n"
+                   "  charts deck.json                    present it\n"
+                   "  charts data.csv                     one chart, printed into the shell\n"
+                   "  charts -h                           the whole manual, written for the agents that make decks\n",
+                   stderr);
         return 2;
       }
     }
 
     // ---- what are we looking at
-    std::size_t decks = 0;
+    std::size_t decks = a.demo ? 1 : 0;
     for (const auto &f : files)
       if (is_deck_file(f)) decks++;
     if (decks > 1 || (decks == 1 && files.size() > 1))
       throw UsageError("give one deck, or data files, not a mix: put the data files in the deck instead");
 
     Deck deck;
-    if (decks == 1) {
+    if (a.demo) {
+      deck = deck_from_text(demo_deck(), a.load);
+    } else if (decks == 1) {
       deck = load_deck(files[0], a.load);
     } else {
       FileSlides fs;
@@ -214,7 +223,7 @@ int main(int argc, char **argv) {
 
     // ---- a launcher: the one thing the human runs
     if (!a.launcher.empty()) {
-      if (decks != 1) throw UsageError("--launcher wants a deck: charts DECK.json --launcher NAME");
+      if (decks != 1 || a.demo) throw UsageError("--launcher wants a deck file: charts DECK.json --launcher NAME");
       std::string path = write_launcher(files[0], a.launcher);
       std::printf("%s\n", path.c_str());
       return report(deck, true);

@@ -37,6 +37,7 @@ struct Args {
   bool color = true, color_forced = false;
   bool list_types = false, list_palettes = false, list_themes = false;
   bool help = false, version = false, schema = false;
+  bool demo = false; // present the built-in deck
 };
 
 Args parse_args(int argc, char **argv);
@@ -46,6 +47,8 @@ void print_palettes(FILE *f);
 void print_themes(FILE *f);
 void print_version(FILE *f);
 void print_example(FILE *f, const std::string &what);
+// The deck --demo presents: every bit of data inline, so it needs no files.
+const char *demo_deck();
 void print_schema(FILE *f);
 
 } // namespace ch
