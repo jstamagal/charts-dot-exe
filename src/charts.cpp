@@ -173,15 +173,21 @@ struct Plot {
   double cellx(double px) const { return cells.x + px / sx; }
   double celly(double py) const { return cells.y + py / sy; }
 
-  // Text centred on a pixel position, nudged to stay inside the panel.
-  void label(double px, double py, const std::string &t, uint8_t fg, int bg = -1) const {
-    int len = static_cast<int>(cp_len(t));
-    double x = cellx(px) - len / 2.0, y = celly(py) - 0.5;
+  // Text at (x, y) in cells with its left edge (-1), middle (0) or right
+  // edge (1) on x: kept inside the panel, whole cells on cell output, and
+  // remembered so callouts keep off it.  Every value label goes through here.
+  void put(double x, double y, const std::string &t, uint8_t fg, int align, int bg = -1) const {
+    const double len = static_cast<double>(cp_len(t));
+    x = align < 0 ? x : (align == 0 ? x - len / 2 : x - len);
     if (!fine) { x = std::floor(x + 0.5); y = std::floor(y + 0.5); }
     x = std::max<double>(clip.x, std::min<double>(x, clip.right() + 1 - len));
     y = std::max<double>(clip.y, std::min<double>(y, clip.bottom()));
     sc->text(x, y, t, fg, bg);
-    taken.push_back(Box{x, y, static_cast<double>(len), 1});
+    taken.push_back(Box{x, y, len, 1});
+  }
+  // Centred on a pixel position.
+  void label(double px, double py, const std::string &t, uint8_t fg, int bg = -1) const {
+    put(cellx(px), celly(py) - 0.5, t, fg, 0, bg);
   }
   void remember(int s, int i, double x, double y, double dir = std::nan("")) {
     Anchor a;
@@ -815,12 +821,9 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
       }
       if (o.values) {
         std::string vl = fmt_point(ds.series[s], v, o.prec);
-        double tx = p.cellx(reach) + 0.6, ty = p.celly((y0 + y1) / 2 - dy / 2) - 0.5;
-        if (!p.fine) { tx = std::ceil(tx); ty = std::floor(ty + 0.5); }
-        if (tx + cp_len(vl) <= clip.right() + 1) {
-          sc.text(tx, ty, vl, S.value);
-          p.taken.push_back(Box{tx, ty, static_cast<double>(cp_len(vl)), 1}); // callouts keep off it
-        }
+        double tx = p.cellx(reach) + 0.6;
+        if (!p.fine) tx = std::ceil(tx); // clear of the bar's end, never over it
+        if (tx + cp_len(vl) <= clip.right() + 1) p.put(tx, p.celly((y0 + y1) / 2 - dy / 2) - 0.5, vl, S.value, -1);
       }
     }
   }
@@ -896,15 +899,10 @@ Plot draw_dumbbell(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &
       if (!o.values || (b - a < 1 && std::isfinite(v) && v != last)) continue; // one label where they coincide
       // the outermost dots label outwards; any in between, above
       std::string vl = fmt_point(ds.series[s], v, o.prec);
-      const double len = static_cast<double>(cp_len(vl));
-      double tx, ty = p.celly(cy) - 0.5;
-      if (x <= a + 0.5 && ns > 1 && b > a) tx = p.cellx(x - rad) - len - 0.6;
-      else if (x >= b - 0.5) tx = p.cellx(x + rad) + 0.6;
-      else { tx = p.cellx(x) - len / 2; ty = p.celly(cy - rad) - 1.2; }
-      if (!p.fine) { tx = std::floor(tx + 0.5); ty = std::floor(ty + 0.5); }
-      tx = std::max<double>(clip.x, std::min<double>(tx, clip.right() + 1 - len));
-      sc.text(tx, ty, vl, ns == 1 ? S.value : c);
-      p.taken.push_back(Box{tx, ty, len, 1});
+      const uint8_t fg = ns == 1 ? S.value : c;
+      if (x <= a + 0.5 && ns > 1 && b > a) p.put(p.cellx(x - rad) - 0.6, p.celly(cy) - 0.5, vl, fg, 1);
+      else if (x >= b - 0.5) p.put(p.cellx(x + rad) + 0.6, p.celly(cy) - 0.5, vl, fg, -1);
+      else p.put(p.cellx(x), p.celly(cy - rad) - 1.2, vl, fg, 0);
     }
   }
   return p;
