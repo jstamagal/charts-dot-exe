@@ -775,6 +775,19 @@ cmp -s "$TMP/pngs/slide-02.png" "$TMP/s2.png"; check "--png-dir slide-02 equals 
 check "--png-dir: one file per slide (8)" "$(ls "$TMP/pngs2" | wc -l)" "8"
 pngok "--png-dir honours --size" "$TMP/pngs2/slide-08.png" 480 320
 
+echo "== launcher"
+LH="$TMP/home"; mkdir -p "$LH"
+HOME="$LH" "$BIN" "$DECK/deck.json" --launcher q3 > "$TMP/launch.out" 2>&1; check "--launcher exits 0" "$?" "0"
+check "--launcher prints the path" "$(cat "$TMP/launch.out")" "$LH/.local/bin/q3"
+[ -x "$LH/.local/bin/q3" ]; check "the launcher is executable" "$?" "0"
+sh -n "$LH/.local/bin/q3"; check "the launcher parses as sh" "$?" "0"
+mkdir -p "$TMP/odd dir"; cp "$DECK/deck.json" "$TMP/odd dir/it's \$here.json"; cp "$DECK/revenue.csv" "$TMP/odd dir/"
+HOME="$LH" "$BIN" "$TMP/odd dir/it's \$here.json" --launcher "$TMP/odd dir/run me" > /dev/null 2>&1; check "--launcher with a slash writes there" "$?" "0"
+sh -n "$TMP/odd dir/run me"; check "quotes, spaces and \$ in the deck path still parse" "$?" "0"
+check "the deck path is quoted whole" "$(sh -c "$(grep '^DECK=' "$TMP/odd dir/run me"); printf %s \"\$DECK\"")" "$TMP/odd dir/it's \$here.json"
+HOME="$LH" "$BIN" "$DECK/deck.json" --launcher "$(printf 'nl\necho INJECTED')" > /dev/null 2>&1
+check "a newline in the name cannot add a line to the script" "$(grep -c '^echo INJECTED' "$LH/.local/bin/nl"*)" "0"
+
 # ------------------------------------------------------------------------------
 echo "== failures are clean, exit codes"
 "$BIN" /nope/nope.csv >/dev/null 2>"$TMP/err1"; check "missing file exits 1" "$?" "1"

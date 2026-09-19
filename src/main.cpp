@@ -70,6 +70,14 @@ std::string sh_quote(const std::string &s) {
   return o + "'";
 }
 
+// For a comment line: a newline in a name would end the comment and start a
+// command, so control characters are blanked.
+std::string one_line(std::string s) {
+  for (char &c : s)
+    if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) c = ' ';
+  return s;
+}
+
 // The script decides nothing about looks: that is all in the deck.  It finds
 // charts, finds a terminal when started without one (a desktop icon, a
 // keybinding), and hands over; charts itself then picks framebuffer, kitty,
@@ -89,7 +97,7 @@ std::string write_launcher(const std::string &deck, const std::string &name) {
   if (n > 0) { exe[n] = 0; self = exe; }
   std::string s =
       "#!/bin/sh\n"
-      "# Made by: charts " + deck + " --launcher " + name + "\n"
+      "# Made by: charts " + one_line(deck) + " --launcher " + one_line(name) + "\n"
       "# Presents the deck.  Left/right to page, ? for keys, q to quit.\n"
       "DECK=" + sh_quote(absolute(deck)) + "\n"
       "CHARTS=" + sh_quote(self) + "\n"
