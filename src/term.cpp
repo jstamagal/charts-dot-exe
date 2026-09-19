@@ -51,6 +51,7 @@ RawMode::RawMode(int fd) : fd_(fd) {
   // on the signal handlers in ttyguard.cpp.
   raw.c_lflag &= ~ISIG;
   raw.c_iflag &= ~(IXON | ICRNL | BRKINT | INPCK | ISTRIP);
+  raw.c_oflag &= ~OPOST; // frames carry their own \r\n
   raw.c_cc[VMIN] = 1;
   raw.c_cc[VTIME] = 0;
   if (::tcsetattr(fd, TCSANOW, &raw) != 0) {
@@ -103,28 +104,46 @@ static int read_byte(int ms) {
 std::string read_key(int timeout_ms) {
   int c = read_byte(timeout_ms);
   if (c < 0) return "";
-  if (c == 3) return "ctrl-c";
-  if (c == 4) return "ctrl-d";
+  if (c == 9) return "tab";
+  if (c == 13 || c == 10) return "enter";
+  if (c == 127 || c == 8) return "backspace";
+  if (c < 27) return std::string("ctrl-") + static_cast<char>('a' + c - 1);
+  if (c >= 0x80) { // one UTF-8 character, however many bytes it takes
+    std::string s(1, static_cast<char>(c));
+    int more = c >= 0xF0 ? 3 : (c >= 0xE0 ? 2 : (c >= 0xC0 ? 1 : 0));
+    for (int i = 0; i < more; i++) {
+      int b = read_byte(25);
+      if (b < 0) break;
+      s += static_cast<char>(b);
+    }
+    return s;
+  }
   if (c != 27) return std::string(1, static_cast<char>(c));
 
   std::string seq;
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 12; i++) {
     int b = read_byte(25);
     if (b < 0) break;
     seq += static_cast<char>(b);
-    if ((b >= 'A' && b <= 'Z') || b == '~') break;
+    if (seq == "[" || seq == "O" || seq == "[[") continue;
+    if ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || b == '~') break;
   }
   if (seq.empty()) return "esc";
-  if (seq == "[A" || seq == "OA") return "up";
-  if (seq == "[B" || seq == "OB") return "down";
-  if (seq == "[C" || seq == "OC") return "right";
-  if (seq == "[D" || seq == "OD") return "left";
-  if (seq == "[5~") return "pgup";
-  if (seq == "[6~") return "pgdn";
-  if (seq == "[H" || seq == "[1~") return "home";
-  if (seq == "[F" || seq == "[4~") return "end";
-  if (seq == "[Z") return "shift-tab";
-  return "esc";
+  static const struct { const char *seq, *name; } keys[] = {
+      {"[A", "up"},      {"OA", "up"},      {"[B", "down"},    {"OB", "down"},   {"[C", "right"},  {"OC", "right"},
+      {"[D", "left"},    {"OD", "left"},    {"[5~", "pgup"},   {"[6~", "pgdn"},  {"[H", "home"},   {"[1~", "home"},
+      {"OH", "home"},    {"[7~", "home"},   {"[F", "end"},     {"[4~", "end"},   {"OF", "end"},    {"[8~", "end"},
+      {"[2~", "insert"}, {"[3~", "delete"}, {"[Z", "shift-tab"},
+      {"OP", "f1"},      {"[11~", "f1"},    {"[[A", "f1"},     {"OQ", "f2"},     {"[12~", "f2"},   {"[[B", "f2"},
+      {"OR", "f3"},      {"[13~", "f3"},    {"[[C", "f3"},     {"OS", "f4"},     {"[14~", "f4"},   {"[[D", "f4"},
+      {"[15~", "f5"},    {"[[E", "f5"},     {"[17~", "f6"},    {"[18~", "f7"},   {"[19~", "f8"},   {"[20~", "f9"},
+      {"[21~", "f10"},
+      {"[1;5C", "ctrl-right"}, {"[1;5D", "ctrl-left"}, {"[1;2C", "shift-right"}, {"[1;2D", "shift-left"},
+  };
+  for (const auto &k : keys)
+    if (seq == k.seq) return k.name;
+  if (seq.size() == 1 && seq[0] >= 32) return std::string("alt-") + seq; // Alt+key
+  return "unknown";
 }
 
 } // namespace ch

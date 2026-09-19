@@ -1,0 +1,357 @@
+{
+ "title": "Arcadia Amusements  -  1991 in review",
+ "_about": "A showcase deck for the charts skill. Each slide's notes name the technique it demonstrates.",
+ "slides": [
+  {
+   "title": "Arcadia Amusements",
+   "subtitle": "1991 in review  -  cabinets, coins and one very sad clam",
+   "notes": "TITLE SLIDE: a slide with no blocks. Title is drawn triple size, subtitle under a rule."
+  },
+  {
+   "title": "December shipped three times as many cabinets as January",
+   "subtitle": "units per month, 1991",
+   "blocks": [
+    {
+     "cols": [
+      {
+       "stat": "4,639",
+       "label": "cabinets shipped",
+       "delta": "+61% on 1990"
+      },
+      {
+       "stat": "640",
+       "label": "December alone",
+       "delta": "+205% since Jan"
+      },
+      {
+       "stat": "4.4%",
+       "label": "returned",
+       "delta": "-1.1 pt"
+      }
+     ],
+     "at": [
+      0,
+      0,
+      12,
+      3
+     ]
+    },
+    {
+     "type": "bar",
+     "data": "cabinets.csv",
+     "series_col": 2,
+     "ylabel": "cabinets",
+     "depth": 3,
+     "colors": {
+      "Dec": "white"
+     },
+     "annotations": [
+      {
+       "at": "Dec",
+       "text": "best month ever"
+      }
+     ],
+     "at": [
+      0,
+      3,
+      8,
+      9
+     ]
+    },
+    {
+     "text": [
+      "# The year",
+      "",
+      "- Every quarter beat the last",
+      "- **Laser Llama** carried the spring",
+      "- June wobbled: see the next slide",
+      "",
+      "> The white bar is December. One pinned colour does the pointing."
+     ],
+     "at": [
+      8,
+      3,
+      4,
+      9
+     ]
+    }
+   ],
+   "notes": "DASHBOARD: KPI strip (cols of stat) over a chart, commentary beside it, placed with at:[x,y,w,h] on the 12x12 grid. colors:{\"Dec\":\"white\"} paints ONE bar of a single-series chart. depth:3 makes the bars chunkier."
+  },
+  {
+   "title": "Returns ran at a dozen a month...",
+   "type": "line",
+   "data": "cabinets.csv",
+   "series_col": 3,
+   "ylabel": "returned",
+   "min": 0,
+   "max": 40,
+   "colors": [
+    "grey"
+   ],
+   "notes": "BUILD, step 1: the plain chart, deliberately quiet (grey line, pinned axis) so the next slide can land. min/max are pinned so the two slides share an axis and nothing jumps."
+  },
+  {
+   "title": "...except June, when a bad batch of joysticks came back",
+   "type": "line",
+   "data": "cabinets.csv",
+   "series_col": 3,
+   "ylabel": "returned",
+   "min": 0,
+   "max": 40,
+   "colors": [
+    "grey"
+   ],
+   "annotations": [
+    {
+     "at": "Jun",
+     "text": "38 returns: joystick batch J-114",
+     "color": "red"
+    },
+    {
+     "y": 15,
+     "text": "normal month",
+     "color": "green"
+    },
+    {
+     "x": "Jul",
+     "text": "supplier changed"
+    }
+   ],
+   "notes": "BUILD, step 2: the SAME chart again, now with the story on it. All three annotation kinds: a callout (at), a level (y), a moment (x). Colour on an annotation carries meaning: red = the problem, green = the baseline."
+  },
+  {
+   "title": "West grew from nothing special to half the business",
+   "type": "stacked",
+   "data": "regions.csv",
+   "ylabel": "cabinets",
+   "values": true,
+   "colors": {
+    "West": "yellow",
+    "North": "grey",
+    "South": "dark grey",
+    "East": "dark cyan"
+   },
+   "annotations": [
+    {
+     "at": "Q4",
+     "series": "West",
+     "text": "870 of 1,740"
+    }
+   ],
+   "notes": "COLOUR AS MEANING: grey out the context, give the one series you are talking about the bright colour. colors:{...} by series name. values:true on a stacked chart prints the totals."
+  },
+  {
+   "title": "One game outsold the bottom four put together",
+   "layout": "cols",
+   "blocks": [
+    {
+     "type": "hbar",
+     "data": "titles.csv",
+     "values": true,
+     "xlabel": "cabinets",
+     "weight": 3,
+     "colors": {
+      "Laser Llama": "green",
+      "Sad Clam": "red"
+     },
+     "annotations": [
+      {
+       "at": "Sad Clam",
+       "text": "72. We do not talk about Sad Clam."
+      }
+     ]
+    },
+    {
+     "rows": [
+      {
+       "type": "pie3d",
+       "data": "titles.csv",
+       "explode": 0,
+       "legend": false,
+       "depth": 3,
+       "title": "share"
+      },
+      {
+       "bullets": [
+        "**Laser Llama**: 33% of all units",
+        "Top three: 76%",
+        "Sad Clam: a rounding error"
+       ]
+      }
+     ],
+     "weight": 2
+    }
+   ],
+   "notes": "RANKING + SHARE: hbar for long names (sort the CSV descending first), a pie3d with explode:0 popping the winner out. rows/cols nest: the right column is a rows group holding a chart and bullets. legend:false when the neighbour already names everything."
+  },
+  {
+   "title": "Coin boxes fill up, then the machine starts to fail",
+   "type": "scatter",
+   "data": "coinbox.csv",
+   "xlabel": "hours switched on per day",
+   "ylabel": "coins / faults",
+   "colors": {
+    "coins": "yellow",
+    "faults": "red"
+   },
+   "annotations": [
+    {
+     "x": "12",
+     "text": "past 12 h, faults take off",
+     "color": "red"
+    },
+    {
+     "note": [
+      0.02,
+      0.02
+     ],
+     "text": "15 sites, one week each"
+    }
+   ],
+   "notes": "SCATTER: the CSV says '#chart: xy' so its first numeric column is X. A note:[x,y] annotation is free text anywhere in the plot: use it for sample size, source, caveats."
+  },
+  {
+   "title": "Most plays last under five minutes",
+   "layout": "cols",
+   "blocks": [
+    {
+     "type": "hist",
+     "data": "sessions.csv",
+     "bins": 12,
+     "xlabel": "minutes per play",
+     "palette": "ice",
+     "weight": 2
+    },
+    {
+     "text": [
+      "# 400 plays",
+      "",
+      "- median **4.1 min**",
+      "- one in ten runs past 9",
+      "",
+      "> A histogram wants one numeric column and nothing else."
+     ],
+     "box": true,
+     "title": "reading this",
+     "weight": 1
+    }
+   ],
+   "notes": "HISTOGRAM + BOXED TEXT: hist takes the first series; bins sets the buckets. box:true puts text in a framed window with its own title, so it sits as an equal beside the chart. palette can change per chart."
+  },
+  {
+   "title": "Same quarter, four regions: small multiples share an axis",
+   "layout": "grid",
+   "blocks": [
+    {
+     "type": "area",
+     "data": "regions.csv",
+     "series_col": 2,
+     "title": "North",
+     "min": 0,
+     "max": 900,
+     "colors": [
+      "cyan"
+     ]
+    },
+    {
+     "type": "area",
+     "data": "regions.csv",
+     "series_col": 3,
+     "title": "South",
+     "min": 0,
+     "max": 900,
+     "colors": [
+      "cyan"
+     ]
+    },
+    {
+     "type": "area",
+     "data": "regions.csv",
+     "series_col": 4,
+     "title": "East",
+     "min": 0,
+     "max": 900,
+     "colors": [
+      "cyan"
+     ]
+    },
+    {
+     "type": "area",
+     "data": "regions.csv",
+     "series_col": 5,
+     "title": "West",
+     "min": 0,
+     "max": 900,
+     "colors": [
+      "yellow"
+     ]
+    }
+   ],
+   "notes": "SMALL MULTIPLES: layout:grid, one series per panel via series_col, and the SAME min/max on every panel so heights compare across panels. One panel in a different colour is the one to look at."
+  },
+  {
+   "title": "The receipts",
+   "layout": "cols",
+   "blocks": [
+    {
+     "type": "table",
+     "data": "regions.csv",
+     "title": "cabinets by region"
+    },
+    {
+     "type": "table",
+     "data": "titles.csv",
+     "title": "cabinets by title"
+    }
+   ],
+   "notes": "TABLES: when someone will ask for the exact number. Put them near the end."
+  },
+  {
+   "title": "One palette per mood",
+   "layout": "grid",
+   "blocks": [
+    {
+     "type": "bar",
+     "data": "regions.csv",
+     "palette": "fire",
+     "title": "fire",
+     "depth": 1
+    },
+    {
+     "type": "line",
+     "data": "regions.csv",
+     "palette": "ice",
+     "title": "ice"
+    },
+    {
+     "type": "donut",
+     "data": "titles.csv",
+     "palette": "green",
+     "title": "green",
+     "legend": false
+    },
+    {
+     "type": "stacked",
+     "data": "regions.csv",
+     "palette": "mono",
+     "title": "mono: told apart by dither"
+    }
+   ],
+   "notes": "PALETTES: dos ega cga ice fire green amber mono. Set one on the deck for a consistent look, override per chart for contrast. mono uses dither patterns instead of colour."
+  },
+  {
+   "title": "1992",
+   "text": [
+    "# Three things",
+    "",
+    "- Build more **Laser Llama**",
+    "- Twelve-hour duty cycle, then a rest",
+    "- Quietly discontinue the clam"
+   ],
+   "size": 2,
+   "valign": "middle",
+   "notes": "CLOSING: a one-block text slide. size:2 doubles the text; keep it to a handful of short lines. valign:middle centres it vertically."
+  }
+ ]
+}

@@ -1,16 +1,18 @@
-// charts.cpp -- the ANSI chart renderers. 16 colours, block shading, DOS boxes.
+// charts.cpp -- the chart renderers.  16 colours, dither shading, DOS boxes.
+//
+// Marks are drawn on a Surface in pixels and text goes to the Scene in cell
+// coordinates; the same code serves real pixels and half blocks (see gfx.hpp).
 #include "chart.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "util.hpp"
 
 namespace ch {
-
-Skin S;
 
 static constexpr double PI = 3.14159265358979323846;
 
@@ -23,26 +25,38 @@ struct Pal {
 
 static const std::vector<Pal> &pals() {
   static const std::vector<Pal> p = {
-      {"dos", {9, 10, 11, 12, 13, 14, 6, 2, 4, 5, 1, 3, 7, 15}},
-      {"ega", {4, 2, 6, 12, 13, 11, 1, 5, 3, 7, 14, 9}},
-      {"cga", {14, 13, 11, 15}},
-      {"ice", {14, 11, 15, 10, 9, 12, 13, 7}},
-      {"fire", {9, 3, 1, 13, 11, 5, 7}},
-      {"green", {10, 2, 6, 15, 14, 3, 7}},
-      {"amber", {11, 3, 9, 5, 13, 1, 15}},
+      {"dos", {11, 14, 10, 9, 13, 12, 15, 3, 6, 2, 1, 5, 7}},
+      {"ega", {9, 10, 11, 12, 13, 14, 6, 2, 4, 5, 1, 3, 7, 15}},
+      {"cga", {14, 13, 15, 11}},
+      {"ice", {14, 15, 12, 6, 7, 4, 11}},
+      {"fire", {11, 9, 3, 1, 15, 13, 5}},
+      {"green", {10, 2, 15, 14, 6, 7}},
+      {"amber", {11, 3, 15, 7, 9, 1}},
       {"mono", {15, 7, 15, 7, 15, 7}},
   };
   return p;
 }
 
 std::vector<std::string> type_names() {
-  return {"bar",     "grouped", "stacked", "hbar",    "line", "area",
-          "pie",     "pie3d",   "donut",   "scatter", "hist", "table"};
+  return {"bar", "stacked", "hbar", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table"};
+}
+
+std::string type_canonical(const std::string &t) {
+  std::string s = lower(trim(t));
+  if (s == "column" || s == "grouped" || s == "bars" || s == "bar3d") return "bar";
+  if (s == "xy" || s == "points") return "scatter";
+  if (s == "histogram") return "hist";
+  if (s == "lines") return "line";
+  if (s == "doughnut" || s == "ring") return "donut";
+  if (s == "stack" || s == "stackedbar") return "stacked";
+  if (s == "barh" || s == "horizontal") return "hbar";
+  return s;
 }
 
 bool type_valid(const std::string &t) {
+  std::string c = type_canonical(t);
   for (const auto &x : type_names())
-    if (ieq(x, t)) return true;
+    if (x == c) return true;
   return false;
 }
 
@@ -54,846 +68,1041 @@ std::vector<std::string> palette_names() {
 
 std::vector<int> palette_cols(const std::string &name, std::size_t n) {
   const std::vector<int> *src = &pals()[0].c;
+  std::vector<int> custom;
+  if (starts_with(name, "custom:")) {
+    for (const auto &t : split(name.substr(7), ',')) custom.push_back(std::atoi(t.c_str()) & 15);
+    if (!custom.empty()) src = &custom;
+  }
   for (const auto &p : pals())
     if (ieq(p.name, name)) { src = &p.c; break; }
   std::vector<int> out;
   out.reserve(n);
-  for (std::size_t i = 0; i < n; i++) out.push_back((*src)[i % src->size()]);
+  // A colour that vanishes into the panel is no use: on a light panel take
+  // the dim partner, on any panel skip the panel's own colour.
+  const bool light = contrast_on(S.panel_bg) == 0 && S.slide_bg != BG_NONE;
+  for (std::size_t k = 0; out.size() < n && k < n + 64; k++) {
+    int c = (*src)[k % src->size()];
+    if (light) c = (c == 15) ? 0 : (c == 7 ? 8 : dim_of(static_cast<uint8_t>(c)));
+    if (S.slide_bg != BG_NONE && c == S.panel_bg && src->size() > 1) continue;
+    out.push_back(c);
+  }
+  while (out.size() < n) out.push_back(7);
   return out;
 }
 
-static void assign_colors(Dataset &ds, const std::string &pal) {
-  std::vector<int> c = palette_cols(pal, ds.series.size());
-  for (std::size_t i = 0; i < ds.series.size(); i++) ds.series[i].color = c[i];
-}
+static bool hidden_series(const Series &s) { return !s.name.empty() && s.name[0] == '\x01'; }
 
-static char32_t marker_for(std::size_t i) {
-  static const char32_t m[] = {U'*', U'o', U'+', U'x', U'#', U'@', U'^', U'~', U'=', U'&'};
-  return m[i % (sizeof m / sizeof m[0])];
-}
-
-// Without colour (or on the mono palette) the fill glyph has to tell series
-// apart on its own, the way shaded charts did before colour was everywhere.
-static char32_t series_char(const RenderOpts &o, std::size_t si) {
-  if (!o.color || ieq(o.palette, "mono")) return G.blk[si % 4];
-  return G.blk[0];
-}
-
-static uint8_t contrast_on(uint8_t bg) { return bg >= 8 ? 0 : 15; }
-
-// ---- axes ------------------------------------------------------------------
-
-struct Axes {
-  double lo = 0, hi = 1;
-  int gx = 0, gy = 0, gw = 1, gh = 1; // plot region (rows gy .. gy+gh-1)
-  int ac = 0;                          // axis column
-  int by = 0;                          // x-axis row
-
-  int row_of(double v) const {
-    if (gh <= 1) return gy;
-    double f = (v - lo) / (hi - lo);
-    if (!(f > 0)) f = (v > lo) ? f : 0; // also catches NaN -> 0
-    if (f < 0) f = 0;
-    if (f > 1) f = 1;
-    return gy + (gh - 1) - static_cast<int>(std::lround(f * (gh - 1)));
+// The colour an author pinned on a name, or on a position; -1 when neither.
+static int pinned_color(const RenderOpts &o, const std::string &name, std::size_t position) {
+  std::size_t pos = 0;
+  int by_pos = -1;
+  for (const auto &c : o.colors) {
+    if (c.first.empty()) { if (pos++ == position) by_pos = c.second; }
+    else if (ieq(trim(c.first), trim(name))) return c.second;
   }
-  int slot_x(int i, int n) const { return gx + static_cast<int>((long long)i * gw / (n > 0 ? n : 1)); }
-  int slot_w(int i, int n) const { return slot_x(i + 1, n) - slot_x(i, n); }
-  int col_center(int i, int n) const { return slot_x(i, n) + slot_w(i, n) / 2; }
+  return by_pos;
+}
+
+static void assign_colors(Dataset &ds, const RenderOpts &o) {
+  std::vector<int> c = palette_cols(o.palette, ds.series.size());
+  std::size_t k = 0;
+  for (auto &s : ds.series) {
+    if (hidden_series(s)) continue;
+    int pin = pinned_color(o, s.name, k);
+    s.color = pin >= 0 ? pin : c[k];
+    k++;
+  }
+}
+
+// Without colour (or on the mono palette) the dither has to tell the series
+// apart, the way shaded charts did before colour was everywhere.
+static bool by_shade(const RenderOpts &o) { return !o.color || ieq(o.palette, "mono"); }
+
+static Ink fill_ink(const RenderOpts &o, int color, std::size_t si) {
+  if (by_shade(o)) return Ink(static_cast<uint8_t>(o.color ? color : 15), S.panel_bg == BG_NONE ? 0 : S.panel_bg,
+                              static_cast<uint8_t>(si % 4));
+  return Ink(static_cast<uint8_t>(color));
+}
+
+static uint8_t panel_color() { return S.slide_bg == BG_NONE ? 0 : S.panel_bg; }
+
+// ---- the plot ----------------------------------------------------------------
+
+namespace {
+
+struct Box {
+  double x = 0, y = 0, w = 0, h = 0; // cells
+  bool hits(const Box &o) const { return x < o.x + o.w && o.x < x + w && y < o.y + o.h && o.y < y + h; }
 };
 
-static Axes make_axes(Canvas &cv, Rect r, double lo, double hi, const RenderOpts &o,
-                      const std::vector<std::string> *cats, const std::string &ylabel,
-                      bool numeric_x, double xlo, double xhi) {
-  Axes ax;
-  ax.lo = lo;
-  ax.hi = hi;
+struct Anchor {
+  int s = 0, i = 0;
+  Pt p;          // surface pixels
+  double dir = 0; // pies: which way is "out", radians; NaN elsewhere
+};
 
-  int cat_rows = 0;
-  if (numeric_x) cat_rows = 1;
-  else if (cats && !cats->empty()) cat_rows = 1;
-  int xlab = o.xlabel.empty() ? 0 : 1;
+struct Plot {
+  Scene *sc = nullptr;
+  Surface *sf = nullptr;
+  Rect cells; // where the surface sits
+  Rect clip;  // text stays inside this
+  int ox = 0, oy = 0, pw = 1, ph = 1;
+  double lo = 0, hi = 1;
+  bool fine = false;
+  int sx = 1, sy = 2;
+  std::vector<Anchor> anchors;
+  std::vector<double> slot_cx; // category centres, pixels
+  mutable std::vector<Box> taken; // value labels already down: callouts keep off them
 
-  ax.gh = r.h - 1 - cat_rows - xlab;
-  if (ax.gh < 1) ax.gh = 1;
-  ax.gy = r.y;
-  ax.by = r.y + ax.gh;
+  double Y(double v) const {
+    double f = (v - lo) / (hi - lo);
+    if (!(f > 0)) f = 0;
+    if (f > 1) f = 1;
+    return oy + ph - f * ph;
+  }
+  double cellx(double px) const { return cells.x + px / sx; }
+  double celly(double py) const { return cells.y + py / sy; }
 
-  std::vector<double> ticks = nice_ticks(lo, hi, std::max(2, std::min(10, ax.gh / 3 + 2)));
+  // Text centred on a pixel position, nudged to stay inside the panel.
+  void label(double px, double py, const std::string &t, uint8_t fg, int bg = -1) const {
+    int len = static_cast<int>(cp_len(t));
+    double x = cellx(px) - len / 2.0, y = celly(py) - 0.5;
+    if (!fine) { x = std::floor(x + 0.5); y = std::floor(y + 0.5); }
+    x = std::max<double>(clip.x, std::min<double>(x, clip.right() + 1 - len));
+    y = std::max<double>(clip.y, std::min<double>(y, clip.bottom()));
+    sc->text(x, y, t, fg, bg);
+    taken.push_back(Box{x, y, static_cast<double>(len), 1});
+  }
+  void remember(int s, int i, double x, double y, double dir = std::nan("")) {
+    Anchor a;
+    a.s = s;
+    a.i = i;
+    a.p = Pt{x, y};
+    a.dir = dir;
+    anchors.push_back(a);
+  }
+  const Anchor *find(int s, int i) const {
+    for (const auto &a : anchors)
+      if (a.i == i && (a.s == s || s < 0)) return &a;
+    return nullptr;
+  }
+};
+
+// Ticks that land on round numbers, and an axis stretched to meet them unless
+// the caller pinned an end.
+std::vector<double> nice_range(double &lo, double &hi, int want, bool pin_lo, bool pin_hi, bool whole = false) {
+  if (!(hi > lo)) hi = lo + 1;
+  // counts are whole numbers: never tick at 0.5 of a thing
+  if (whole) want = std::max(2, std::min(want, static_cast<int>(std::ceil(hi - lo)) + 1));
+  // Rounding the axis out to a tick can leave a third of the plot empty (1,842
+  // on an axis to 4K).  Allow a few more ticks when that buys a tighter fit.
+  const double lo0 = lo, hi0 = hi;
+  double best_waste = 1e18, best_lo = lo, best_hi = hi;
+  std::vector<double> best;
+  for (int w = want; w <= want + (whole ? 0 : 4); w++) {
+    double l = lo0, h = hi0;
+    std::vector<double> t = nice_ticks(l, h, w);
+    if (t.size() >= 2) {
+      double step = t[1] - t[0];
+      if (!pin_lo) l = std::floor(l / step + 1e-9) * step;
+      if (!pin_hi) h = std::ceil(h / step - 1e-9) * step;
+      t = nice_ticks(l, h, w);
+    }
+    double waste = ((h - hi0) + (lo0 - l)) / (hi0 - lo0);
+    if (waste < best_waste - 1e-9) { best_waste = waste; best = t; best_lo = l; best_hi = h; }
+    if (waste <= 0.2) break;
+  }
+  lo = best_lo;
+  hi = best_hi;
+  // An axis pinned at 12 should say 12, even when the round ticks are 0 5 10.
+  if (pin_hi && best.size() >= 2) {
+    double step = best[1] - best[0];
+    if (hi - best.back() >= step * 0.35) best.push_back(hi);
+  }
+  return best;
+}
+
+Plot make_axes(Scene &sc, Rect r, Rect clip, double lo, double hi, const std::vector<double> &ticks,
+               const RenderOpts &o, const std::vector<std::string> *cats, bool numeric_x, double xlo,
+               double xhi) {
+  Plot p;
+  p.sc = &sc;
+  p.clip = clip;
+  p.lo = lo;
+  p.hi = hi;
+  p.fine = sc.mode().pixel;
+  p.sx = sc.mode().sx();
+  p.sy = sc.mode().sy();
 
   int tw = 1;
   for (double t : ticks) tw = std::max(tw, static_cast<int>(cp_len(fmt_axis(t))));
+  int yl_cols = (o.ylabel.empty() || r.w < 24) ? 0 : 2;
+  int left = yl_cols + tw + 1;
+  if (left + 6 > r.w) left = std::max(1, r.w - 6);
 
-  int yl_cols = (ylabel.empty() || r.w < 20) ? 0 : 2;
-  int lw = tw + yl_cols;
-  if (lw + 4 > r.w) lw = std::max(1, r.w - 4);
-  ax.ac = r.x + lw;
-  ax.gx = ax.ac + 1;
-  ax.gw = r.right() - ax.gx + 1;
-  if (ax.gw < 1) ax.gw = 1;
+  bool has_x = numeric_x || (cats && !cats->empty());
+  int below = 1 + (has_x ? 1 : 0) + (o.xlabel.empty() ? 0 : 1);
+  int top_pad = r.h >= 10 ? 1 : 0;
+
+  int gx = r.x + left, gy = r.y + top_pad;
+  int gw = std::max(1, r.right() - gx + 1 - (r.w > 30 ? 1 : 0));
+  int gh = std::max(1, r.h - top_pad - below);
+
+  p.cells = Rect{gx - 1, gy, gw + 1, gh + 1};
+  p.sf = &sc.surface(p.cells);
+  p.ox = p.sx;
+  p.oy = 0;
+  p.pw = gw * p.sx;
+  p.ph = gh * p.sy;
+  Surface &sf = *p.sf;
 
   if (yl_cols > 0) {
-    int len = static_cast<int>(cp_len(ylabel));
-    int y0 = ax.gy + (ax.gh + len - 1) / 2;
-    int last = ax.gy + ax.gh - 1;
-    if (y0 > last) y0 = last;
-    cv.vtext(r.x, y0, ylabel, S.ylabel);
+    std::string yl = trunc_to(o.ylabel, static_cast<std::size_t>(gh));
+    if (static_cast<int>(cp_len(o.ylabel)) > gh)
+      sc.fit_note("ylabel \"" + o.ylabel + "\" is cut short: it runs down the axis one letter a row, and there are " +
+                  std::to_string(gh) + " rows");
+    sc.cv.vtext(r.x, gy + (gh - static_cast<int>(cp_len(yl))) / 2, yl, S.ylabel);
   }
 
-  // the spine
-  cv.put(ax.ac, ax.gy, G.tl, S.axis);
-  if (ax.gh > 1) cv.vline(ax.ac, ax.gy + 1, ax.gh - 1, G.v, S.axis);
-  cv.put(ax.ac, ax.by, G.bl, S.axis);
-  cv.hline(ax.ac + 1, ax.by, r.right() - ax.ac, G.h, S.axis);
+  // spine
+  if (p.fine) {
+    sf.vline(p.ox - 1, 0, p.ph, Ink(S.axis));
+    sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
+  } else {
+    sc.cv.vline(gx - 1, gy, gh, G.v, S.axis);
+    sc.cv.put(gx - 1, gy + gh, G.bl, S.axis);
+    sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
+  }
 
   int last_row = -99;
   for (double t : ticks) {
-    int row = ax.row_of(t);
-    if (row < ax.gy || row > ax.gy + ax.gh - 1) continue;
-    if (row == last_row) continue;
-    last_row = row;
-    cv.text_r(r.x + yl_cols, row, lw - yl_cols, fmt_axis(t), S.tick);
-    cv.put(ax.ac, row, std::fabs(t) < (ax.hi - ax.lo) * 1e-9 ? G.cross : G.lt, S.axis);
-    if (o.grid) cv.hline(ax.gx, row, ax.gw, G.dot, S.grid);
-  }
-
-  if (cats && !cats->empty() && !numeric_x) {
-    int n = static_cast<int>(cats->size());
-    for (int i = 0; i < n; i++) {
-      int sx = ax.slot_x(i, n), sw = ax.slot_w(i, n);
-      const std::string &lab = (*cats)[static_cast<std::size_t>(i)];
-      int len = static_cast<int>(cp_len(lab));
-      if (sw >= len + 1) {
-        cv.text_c(sx, ax.by + 1, sw, lab, S.label);
-        cv.put(ax.col_center(i, n), ax.by, G.tt, S.axis);
-      } else if (sw >= 3) {
-        cv.text_c(sx, ax.by + 1, sw, trunc_to(lab, static_cast<std::size_t>(sw - 1)), S.label);
-      } else if (i % 2 == 0) {
-        cv.text_c(sx - 1, ax.by + 1, std::max(2, sw * 2), trunc_to(lab, 3), S.label);
+    double y = p.Y(t);
+    std::string lab = fmt_axis(t);
+    int len = static_cast<int>(cp_len(lab));
+    if (p.fine) {
+      int yi = static_cast<int>(std::lround(y));
+      sf.hline(p.ox - 5, p.ox - 2, yi, Ink(S.axis));
+      if (o.grid && yi < p.ph - 1) sf.dotted_h(p.ox, p.ox + p.pw - 1, yi, Ink(S.grid), 4);
+      double ty = std::max<double>(clip.y, p.celly(y) - 0.5);
+      sc.text(gx - 1.5 - len, ty, lab, S.tick);
+    } else {
+      int row = static_cast<int>(std::floor(p.celly(y)));
+      row = std::max(gy, std::min(row, gy + gh));
+      if (row == last_row) continue;
+      last_row = row;
+      sc.cv.text_r(r.x + yl_cols, row, left - yl_cols - 1, lab, S.tick);
+      if (row < gy + gh) {
+        sc.cv.put(gx - 1, row, G.rt, S.axis);
+        if (o.grid) sc.cv.hline(gx, row, gw, G.dot, S.grid);
       }
     }
+  }
+
+  const double laby = p.fine ? gy + gh + 0.45 : gy + gh + 1;
+  if (cats && !cats->empty() && !numeric_x) {
+    int n = static_cast<int>(cats->size());
+    double slot = static_cast<double>(gw) / n;
+    int maxlen = 1;
+    for (const auto &c : *cats) maxlen = std::max(maxlen, static_cast<int>(cp_len(c)));
+    // When the names do not fit, show every k-th one rather than mush.
+    int every = 1;
+    if (slot < maxlen + 1) every = std::max(1, static_cast<int>(std::ceil((std::min(maxlen, 10) + 1) / slot)));
+    if (every > 1)
+      sc.fit_note("only every " + std::to_string(every) + (every == 2 ? "nd" : (every == 3 ? "rd" : "th")) +
+                  " category label is shown: " + std::to_string(n) + " labels of up to " + std::to_string(maxlen) +
+                  " characters do not fit across " + std::to_string(gw) + " columns (shorten them, or use hbar)");
+    bool cut = false;
+    for (int i = 0; i < n; i++) {
+      double cxp = p.ox + (i + 0.5) * p.pw / n;
+      p.slot_cx.push_back(cxp);
+      if (p.fine) sf.vline(static_cast<int>(cxp), p.ph + 1, p.ph + 3, Ink(S.axis));
+      else if (slot >= 2) sc.cv.put(static_cast<int>(p.cellx(cxp)), gy + gh, G.tt, S.axis);
+      if (i % every) continue;
+      int room = std::max(1, static_cast<int>(slot * every) - (every > 1 || slot >= 3 ? 1 : 0));
+      std::string lab = trunc_to((*cats)[static_cast<std::size_t>(i)], static_cast<std::size_t>(room));
+      int len = static_cast<int>(cp_len(lab));
+      if (!cut && every == 1 && cp_len((*cats)[static_cast<std::size_t>(i)]) > static_cast<std::size_t>(room)) {
+        cut = true;
+        sc.fit_note("category label \"" + (*cats)[static_cast<std::size_t>(i)] + "\" is cut to " + std::to_string(room) +
+                    " characters (shorten the labels, or use hbar)");
+      }
+      double x = p.cellx(cxp) - len / 2.0;
+      if (!p.fine) x = std::floor(x + 0.5);
+      x = std::max<double>(r.x, std::min<double>(x, r.right() + 1 - len));
+      sc.text(x, laby, lab, S.label);
+    }
   } else if (numeric_x) {
-    std::vector<double> xt = nice_ticks(xlo, xhi, std::max(2, std::min(8, ax.gw / 14 + 2)));
+    std::vector<double> xt = nice_ticks(xlo, xhi, std::max(2, std::min(8, gw / 12 + 2)));
     for (double t : xt) {
       double f = (xhi > xlo) ? (t - xlo) / (xhi - xlo) : 0;
-      int x = ax.gx + static_cast<int>(std::lround(f * (ax.gw - 1)));
-      if (x < ax.gx || x > r.right()) continue;
+      if (f < -1e-9 || f > 1 + 1e-9) continue;
+      double xp = p.ox + f * (p.pw - 1);
       std::string lab = fmt_axis(t);
       int len = static_cast<int>(cp_len(lab));
-      cv.text_c(x - len / 2, ax.by + 1, len + 1, lab, S.label);
-      cv.put(x, ax.by, G.tt, S.axis);
+      if (p.fine) {
+        sf.vline(static_cast<int>(xp), p.ph + 1, p.ph + 3, Ink(S.axis));
+        if (o.grid && f > 0.001) sf.dotted_v(static_cast<int>(xp), 0, p.ph - 1, Ink(S.grid), 4);
+      } else {
+        sc.cv.put(static_cast<int>(p.cellx(xp)), gy + gh, G.tt, S.axis);
+      }
+      double x = p.cellx(xp) - len / 2.0;
+      if (!p.fine) x = std::floor(x + 0.5);
+      x = std::max<double>(r.x, std::min<double>(x, r.right() + 1 - len));
+      sc.text(x, laby, lab, S.label);
     }
   }
 
-  if (xlab) cv.text_c(r.x, ax.by + 1 + cat_rows, r.w, o.xlabel, S.xlabel);
-  return ax;
+  if (!o.xlabel.empty()) sc.cv.text_c(gx, r.bottom(), gw, o.xlabel, S.xlabel);
+  return p;
 }
 
-// ---- legend ----------------------------------------------------------------
+// ---- legend ------------------------------------------------------------------
 
 struct LegEntry {
   std::string name;
   int color = 7;
   std::string val;
-  char32_t ch = 0; // 0 = solid block
+  int level = 0;
 };
 
-static int legend_width(const std::vector<LegEntry> &e) {
+int legend_width(const std::vector<LegEntry> &e) {
   std::size_t w = 0;
   for (const auto &x : e) {
-    std::size_t l = cp_len(x.name) + 4;
-    if (!x.val.empty()) l += cp_len(x.val) + 1;
+    std::size_t l = cp_len(x.name) + 3;
+    if (!x.val.empty()) l += cp_len(x.val) + 2;
     w = std::max(w, l);
   }
   return static_cast<int>(w);
 }
 
-static void legend_draw(Canvas &cv, Rect r, const std::vector<LegEntry> &e, bool vertical) {
+void legend_draw(Scene &sc, Rect r, const std::vector<LegEntry> &e, bool vertical) {
   if (e.empty() || r.w < 4 || r.h < 1) return;
+  Canvas &cv = sc.cv;
+  auto swatch = [&](int x, int y, const LegEntry &en) {
+    char32_t g = G.blk[en.level & 3];
+    cv.put(x, y, g, static_cast<uint8_t>(en.color));
+    cv.put(x + 1, y, g, static_cast<uint8_t>(en.color));
+  };
   if (vertical) {
     int y = r.y;
     for (const auto &en : e) {
       if (y > r.bottom()) return;
-      cv.put(r.x, y, en.ch ? en.ch : G.blk[0], static_cast<uint8_t>(en.color));
-      cv.put(r.x + 1, y, en.ch ? en.ch : G.blk[0], static_cast<uint8_t>(en.color));
-      int room = r.w - 4;
+      swatch(r.x, y, en);
+      int room = r.w - 3;
       if (!en.val.empty()) room -= static_cast<int>(cp_len(en.val)) + 2;
       cv.text(r.x + 3, y, trunc_to(en.name, static_cast<std::size_t>(std::max(1, room))), S.legend);
-      if (!en.val.empty() && r.w > static_cast<int>(cp_len(en.val)) + 5)
-        cv.text_r(r.x, y, r.w, en.val, S.value);
+      if (!en.val.empty() && r.w > static_cast<int>(cp_len(en.val)) + 5) cv.text_r(r.x, y, r.w, en.val, S.value);
       y++;
     }
-  } else {
-    int x = r.x, y = r.y;
-    for (const auto &en : e) {
-      std::string seg = en.name + (en.val.empty() ? "" : " " + en.val);
-      int need = static_cast<int>(cp_len(seg)) + 5;
-      if (x + need > r.right() + 1) {
-        x = r.x;
-        y++;
-        if (y > r.bottom()) return;
+    return;
+  }
+  // underneath: an aligned grid, centred as a block
+  int colw = 0;
+  for (const auto &en : e)
+    colw = std::max(colw, static_cast<int>(cp_len(en.name) + (en.val.empty() ? 0 : cp_len(en.val) + 1)) + 5);
+  colw = std::min(colw, r.w);
+  int ncols = std::max(1, std::min(static_cast<int>(e.size()), r.w / std::max(1, colw)));
+  int nrows = (static_cast<int>(e.size()) + ncols - 1) / ncols;
+  ncols = (static_cast<int>(e.size()) + nrows - 1) / nrows; // no ragged last column
+  int x0 = r.x + std::max(0, (r.w - ncols * colw + 2) / 2);
+  for (std::size_t i = 0; i < e.size(); i++) {
+    int row = static_cast<int>(i) / ncols, col = static_cast<int>(i) % ncols;
+    if (row >= r.h) return;
+    int x = x0 + col * colw, y = r.y + row;
+    std::string seg = e[i].name + (e[i].val.empty() ? "" : " " + e[i].val);
+    swatch(x, y, e[i]);
+    cv.text(x + 3, y, trunc_to(seg, static_cast<std::size_t>(std::max(1, colw - 4))), S.legend);
+  }
+}
+
+int legend_rows_needed(const std::vector<LegEntry> &e, int w) {
+  int colw = 0;
+  for (const auto &en : e)
+    colw = std::max(colw, static_cast<int>(cp_len(en.name) + (en.val.empty() ? 0 : cp_len(en.val) + 1)) + 5);
+  int ncols = std::max(1, std::min(static_cast<int>(e.size()), w / std::max(1, colw)));
+  return (static_cast<int>(e.size()) + ncols - 1) / ncols;
+}
+
+// ---- bars --------------------------------------------------------------------
+
+struct Depth {
+  double dx = 0, dy = 0;
+};
+
+Depth depth_for(const Plot &p, const RenderOpts &o, double bar_w) {
+  Depth d;
+  if (!p.fine || o.depth <= 0) return d;
+  d.dx = std::min<double>(o.depth * 3.0, std::max(2.0, bar_w * 0.5));
+  d.dy = d.dx * 0.7;
+  return d;
+}
+
+// One extruded bar.  ya/yb are the two ends in pixels, in either order.
+void bar3d(const Plot &p, double x0, double x1, double ya, double yb, Ink front, int color, Depth d,
+           bool shaded, bool top_face) {
+  Surface &sf = *p.sf;
+  double top = std::min(ya, yb), bot = std::max(ya, yb);
+  if (x1 - x0 < 1) x1 = x0 + 1;
+  if (!p.fine) {
+    sf.rect(x0, top, x1, bot, front);
+    if (shaded && x1 - x0 >= 3) sf.rect(x1 - 1, top, x1, bot, side_ink(static_cast<uint8_t>(color)));
+    return;
+  }
+  const bool solid = d.dx > 0 && shaded;
+  if (solid) {
+    sf.poly({{x1, top}, {x1 + d.dx, top - d.dy}, {x1 + d.dx, bot - d.dy}, {x1, bot}},
+            side_ink(static_cast<uint8_t>(color)));
+    if (top_face)
+      sf.poly({{x0, top}, {x1, top}, {x1 + d.dx, top - d.dy}, {x0 + d.dx, top - d.dy}},
+              top_ink(static_cast<uint8_t>(color)));
+  }
+  sf.rect(x0, top, x1, bot, front);
+  if (x1 - x0 >= 5) {
+    Ink edge(panel_color());
+    int ix0 = static_cast<int>(std::lround(x0)), ix1 = static_cast<int>(std::lround(x1)) - 1;
+    int iy0 = static_cast<int>(std::lround(top)), iy1 = static_cast<int>(std::lround(bot)) - 1;
+    sf.vline(ix0, iy0, iy1, edge);
+    sf.vline(ix1, iy0, iy1, edge);
+    sf.hline(ix0, ix1, iy0, edge);
+    if (solid) {
+      sf.line(x1 + d.dx, top - d.dy, x1 + d.dx, bot - d.dy, edge);
+      if (top_face) {
+        sf.line(x0, top, x0 + d.dx, top - d.dy, edge);
+        sf.line(x0 + d.dx, top - d.dy, x1 + d.dx, top - d.dy, edge);
+        sf.line(x1 - 1, top, x1 + d.dx - 1, top - d.dy, edge);
       }
-      cv.put(x, y, en.ch ? en.ch : G.blk[0], static_cast<uint8_t>(en.color));
-      cv.put(x + 1, y, en.ch ? en.ch : G.blk[0], static_cast<uint8_t>(en.color));
-      cv.text(x + 3, y, seg, S.legend);
-      x += need + 1;
     }
   }
 }
 
-static std::vector<LegEntry> series_entries(const Dataset &ds, const RenderOpts &o) {
-  std::vector<LegEntry> e;
-  for (std::size_t i = 0; i < ds.series.size(); i++) {
-    if (!ds.series[i].name.empty() && ds.series[i].name[0] == '\x01') continue; // x column
-    e.push_back({ds.series[i].name, ds.series[i].color, fmt_val(ds.sum(i)), series_char(o, i)});
-  }
-  return e;
+// Where the editing cursor is: a drop line to the axis and a fat ring.
+void ring_cursor(const Plot &p, double x, double y) {
+  if (!p.fine) { p.sf->ring(x, y, 1.5, Ink(15)); return; }
+  for (int yy = static_cast<int>(y); yy < p.oy + p.ph; yy++)
+    if ((yy / 3) % 2 == 0) p.sf->set(static_cast<int>(x), yy, Ink(15));
+  p.sf->disc(x, y, 9, Ink(panel_color()));
+  p.sf->disc(x, y, 8, Ink(15));
+  p.sf->disc(x, y, 5, Ink(panel_color()));
+  p.sf->disc(x, y, 3, Ink(S.accent));
 }
 
-// ---- bars ------------------------------------------------------------------
-
-static void bar3d(Canvas &cv, int bx, int bw, int row_a, int row_b, int color, int depth,
-                  char32_t front_ch) {
-  if (bw < 1) return;
-  if (row_b < row_a) std::swap(row_a, row_b);
-  int h = row_b - row_a + 1;
-  uint8_t c = static_cast<uint8_t>(color);
-  if (front_ch != G.blk[0] || depth <= 0 || bw < 3) {
-    // Flat bar: without colour the glyph already carries the series.
-    cv.fill(bx, row_a, bw, h, front_ch, c);
-    return;
-  }
-  int front = bw - 1;
-  cv.fill(bx, row_a, front, h, G.blk[0], c);
-  if (h >= 2) cv.hline(bx, row_a, front, G.blk[2], c); // lit top face
-  cv.vline(bx + front, row_a, h, G.blk[1], c);         // shaded right side
+double cell_at(const Dataset &ds, std::size_t s, std::size_t i) {
+  return i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
 }
 
-static void draw_bars(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o, bool stacked) {
+Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, bool stacked, bool tight) {
   std::size_t n = ds.nrows();
-  if (n == 0 || ds.series.empty()) return;
+  std::size_t ns = ds.series.size();
   const std::vector<std::string> *cats = (ds.labels.size() == n) ? &ds.labels : nullptr;
 
   double lo = 0, hi = 0;
   if (stacked) {
-    lo = 0;
-    hi = 0;
     for (std::size_t i = 0; i < n; i++) {
-      double p = 0, m = 0;
-      for (const auto &s : ds.series) {
-        double v = i < s.v.size() ? s.v[i] : std::nan("");
+      double pos = 0, neg = 0;
+      for (std::size_t s = 0; s < ns; s++) {
+        double v = cell_at(ds, s, i);
         if (!std::isfinite(v)) continue;
-        if (v > 0) p += v; else m += v;
+        if (v > 0) pos += v; else neg += v;
       }
-      hi = std::max(hi, p);
-      lo = std::min(lo, m);
+      hi = std::max(hi, pos);
+      lo = std::min(lo, neg);
     }
   } else {
     ds.bounds(lo, hi);
   }
-  if (o.has_lo) lo = o.lo;
-  if (o.has_hi) hi = o.hi;
-  else if (!o.has_lo) hi += (hi - lo) * 0.06; // a little air over the tallest bar
   if (lo > 0) lo = 0;
   if (hi < 0) hi = 0;
-  if (!(hi > lo)) hi = lo + 1;
+  if (o.has_lo) lo = o.lo;
+  if (o.has_hi) hi = o.hi;
+  else hi += (hi - lo) * (o.values ? 0.10 : 0.04); // air over the tallest bar
+  int want = std::max(3, std::min(9, r.h / 3));
+  std::vector<double> ticks = nice_range(lo, hi, want, o.has_lo, o.has_hi, tight);
 
-  Axes ax = make_axes(cv, r, lo, hi, o, cats, o.ylabel, false, 0, 1);
-  int base = ax.row_of(0);
-  std::size_t ns = ds.series.size();
+  Plot p = make_axes(sc, r, clip, lo, hi, ticks, o, cats, false, 0, 1);
+  if (n == 0 || ns == 0) return p;
+  double base = p.Y(std::max(lo, std::min(hi, 0.0)));
+  double slot = static_cast<double>(p.pw) / n;
+  double group = tight ? slot : std::max(1.0, std::floor(slot * (ns > 1 ? 0.82 : 0.68)));
+  if (!p.fine && !tight) group = std::max(1.0, std::min(slot, std::floor(slot) - (slot >= 3 ? 1 : 0)));
+  // Whole pixels, so every bar is exactly as wide as its neighbour.
+  double bar_w = stacked ? group : std::max(1.0, std::floor(group / ns));
+  if (!tight) group = stacked ? group : bar_w * ns;
+  Depth d = depth_for(p, o, bar_w);
+  if (tight) d = Depth();
+  // Keep the last bar's side face inside the plot.
+  double shift = -d.dx / 2;
 
   for (std::size_t i = 0; i < n; i++) {
-    int sx = ax.slot_x(static_cast<int>(i), static_cast<int>(n));
-    int sw = ax.slot_w(static_cast<int>(i), static_cast<int>(n));
-    if (sw < 1) continue;
-
+    double gx0 = p.ox + i * slot + (slot - group) / 2 + shift;
+    if (!tight) gx0 = std::floor(gx0 + 0.5);
     if (stacked) {
-      int bw = sw - 1;
-      if (sw >= 4 && bw < 1) bw = sw - 1;
-      if (sw < 4) bw = sw;
-      double cum = 0;
+      double pos = 0, neg = 0;
+      std::size_t last_pos = ns;
       for (std::size_t s = 0; s < ns; s++) {
-        double v = i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
+        double v = cell_at(ds, s, i);
+        if (std::isfinite(v) && v > 0) last_pos = s;
+      }
+      for (std::size_t s = 0; s < ns; s++) {
+        double v = cell_at(ds, s, i);
         if (!std::isfinite(v) || v == 0) continue;
-        double a = cum, b = cum + v;
-        cum = b;
-        int ra = ax.row_of(a), rb = ax.row_of(b);
-        if (ra == rb) continue;
-        bar3d(cv, sx, bw, ra, rb, ds.series[s].color, o.depth, series_char(o, s));
+        double a = v > 0 ? pos : neg, b = a + v;
+        (v > 0 ? pos : neg) = b;
+        bar3d(p, gx0, gx0 + bar_w, p.Y(a), p.Y(b), fill_ink(o, ds.series[s].color, s), ds.series[s].color, d,
+              !by_shade(o), s == last_pos);
+        p.remember(static_cast<int>(s), static_cast<int>(i), gx0 + bar_w / 2, p.Y(b));
       }
-      if (o.values && std::fabs(cum) > 0) {
-        std::string lab = fmt_val(cum, o.prec);
-        int lw = static_cast<int>(cp_len(lab));
-        int top = ax.row_of(cum);
-        int row = top - 1 >= ax.gy ? top - 1 : top + 1;
-        if (row <= ax.by - 1 && lw <= sw) cv.text(sx + (sw - lw) / 2, row, lab, S.value);
-      }
+      if (o.values && pos > 0)
+        p.label(gx0 + bar_w / 2 + d.dx / 2, p.Y(pos) - d.dy - p.sy * 0.6, fmt_val(pos + neg, o.prec), S.value);
     } else {
-      int gap = (sw >= 7) ? 1 : 0;
-      int inner = sw - gap;
-      if (inner < 1) inner = 1;
       for (std::size_t s = 0; s < ns; s++) {
-        int bx = sx + static_cast<int>((long long)s * inner / ns);
-        int bw = sx + static_cast<int>((long long)(s + 1) * inner / ns) - bx;
-        if (bw < 1) bw = 1;
-        double v = i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
+        double v = cell_at(ds, s, i);
         if (!std::isfinite(v)) continue;
-        int rb = ax.row_of(v);
-        if (rb == base) continue;
-        bar3d(cv, bx, bw, base, rb, ds.series[s].color, bw >= 3 ? o.depth : 0, series_char(o, s));
+        double x0 = gx0 + s * bar_w, x1 = x0 + bar_w;
+        if (p.fine && !tight && ns > 1 && bar_w >= 6) x1 -= 1;
+        double yv = p.Y(v);
+        if (std::fabs(yv - base) < 1 && v != 0) yv = base + (v > 0 ? -1 : 1);
+        // One series: a colour pinned on a category paints that one bar.
+        int col = ds.series[s].color;
+        if (ns == 1 && i < ds.labels.size()) {
+          int pin = pinned_color(o, ds.labels[i], static_cast<std::size_t>(-1));
+          if (pin >= 0) col = pin;
+        }
+        bar3d(p, x0, x1, base, yv, fill_ink(o, col, s), col, d, !by_shade(o), true);
+        p.remember(static_cast<int>(s), static_cast<int>(i), (x0 + x1) / 2, yv);
         if (o.values) {
           std::string lab = fmt_val(v, o.prec);
-          int lw = static_cast<int>(cp_len(lab));
-          int top = std::min(base, rb);
-          int row = top - 1 >= ax.gy ? top - 1 : top + 1;
-          if (row <= ax.by - 1 && lw <= bw) cv.text(bx + (bw - lw) / 2, row, lab, S.value);
+          if (static_cast<int>(cp_len(lab)) * p.sx <= bar_w + (ns == 1 ? slot - group : 0) + (p.fine ? 2 : 0)) {
+            double ly = v >= 0 ? yv - d.dy - p.sy * 0.6 : yv + p.sy * 0.6;
+            p.label((x0 + x1) / 2 + d.dx / 2, ly, lab, S.value);
+          }
         }
       }
     }
   }
+  return p;
 }
 
-// ---- horizontal bars -------------------------------------------------------
+// ---- horizontal bars ---------------------------------------------------------
 
-static void draw_hbars(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o, bool stacked) {
-  std::size_t n = ds.nrows();
-  if (n == 0 || ds.series.empty()) return;
-  std::size_t ns = ds.series.size();
+Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
+  Plot p;
+  p.sc = &sc;
+  p.clip = clip;
+  p.fine = sc.mode().pixel;
+  p.sx = sc.mode().sx();
+  p.sy = sc.mode().sy();
+  std::size_t n = ds.nrows(), ns = ds.series.size();
+  if (n == 0 || ns == 0) return p;
 
-  double hi = 0, lo = 0;
-  if (stacked) {
-    for (std::size_t i = 0; i < n; i++) {
-      double t = 0;
-      for (const auto &s : ds.series) {
-        double v = i < s.v.size() ? s.v[i] : std::nan("");
-        if (std::isfinite(v) && v > 0) t += v;
-      }
-      hi = std::max(hi, t);
-    }
-  } else {
-    ds.bounds(lo, hi);
-  }
+  double lo = 0, hi = 0;
+  ds.bounds(lo, hi);
+  if (lo > 0) lo = 0;
+  if (hi < 0) hi = 0;
+  if (o.has_lo) lo = o.lo;
   if (o.has_hi) hi = o.hi;
-  else if (!o.has_lo) hi += (hi - lo) * 0.06; // a little air over the tallest bar
-  if (hi <= 0) hi = 1;
+  else hi += (hi - lo) * (o.values ? 0.12 : 0.03);
 
-  // left gutter for category names
   std::size_t labw = 0;
-  for (std::size_t i = 0; i < n; i++) {
-    std::string lab = (i < ds.labels.size()) ? ds.labels[i] : std::to_string(i + 1);
-    labw = std::max(labw, cp_len(lab));
+  for (std::size_t i = 0; i < n; i++)
+    labw = std::max(labw, cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1)));
+  int gut = std::min(static_cast<int>(labw) + 1, std::max(4, r.w / 3));
+  if (static_cast<int>(labw) + 1 > gut)
+    sc.fit_note("category labels are cut to " + std::to_string(gut - 1) + " characters (the longest is " +
+                std::to_string(labw) + ")");
+
+  int gx = r.x + gut + 1;
+  int gw = std::max(1, r.right() - gx + 1 - 2);
+  int below = 2 + (o.xlabel.empty() ? 0 : 1);
+  int gy = r.y, gh = std::max(1, r.h - below);
+  std::vector<double> ticks = nice_range(lo, hi, std::max(3, std::min(8, gw / 10)), o.has_lo, o.has_hi);
+  p.lo = lo;
+  p.hi = hi;
+
+  p.cells = Rect{gx - 1, gy, gw + 1, gh + 1};
+  p.sf = &sc.surface(p.cells);
+  p.ox = p.sx;
+  p.pw = gw * p.sx;
+  p.ph = gh * p.sy;
+  Surface &sf = *p.sf;
+  auto X = [&](double v) {
+    double f = (v - lo) / (hi - lo);
+    f = std::max(0.0, std::min(1.0, f));
+    return p.ox + f * (p.pw - 1);
+  };
+
+  if (p.fine) {
+    sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
+  } else {
+    sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
   }
-  int gutw = static_cast<int>(labw) + 1;
-  int maxgut = std::max(4, r.w / 3);
-  if (gutw > maxgut) gutw = maxgut;
-
-  int rows_per = 2;
-  int gap = 1;
-  int need = static_cast<int>(n) * (static_cast<int>(ns) * rows_per + gap);
-  if (need > r.h) { rows_per = 1; gap = 0; }
-  need = static_cast<int>(n) * (static_cast<int>(ns) * rows_per + gap);
-  if (need > r.h) { rows_per = 1; }
-  int avail_rows = r.h - 1; // the axis lives on the last row
-  int group_h = static_cast<int>(ns) * rows_per + gap;
-  if (group_h < 1) group_h = 1;
-
-  int plotx = r.x + gutw;
-  int plotw = r.right() - plotx + 1;
-  if (plotw < 4) return;
-
-  std::vector<double> ticks = nice_ticks(0, hi, std::max(2, std::min(8, plotw / 12 + 2)));
-
-  int y = r.y;
-  for (std::size_t i = 0; i < n && y + group_h - 1 < r.y + avail_rows; i++) {
-    int gy = y;
-    std::string lab = (i < ds.labels.size()) ? ds.labels[i] : std::to_string(i + 1);
-    cv.text_r(r.x, gy, gutw - 1, lab, S.label);
-    if (stacked) {
-      double cum = 0;
-      for (std::size_t s = 0; s < ns; s++) {
-        double v = i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
-        if (!std::isfinite(v) || v <= 0) continue;
-        int x0 = plotx + static_cast<int>(std::lround(cum / hi * (plotw - 1)));
-        cum += v;
-        int x1 = plotx + static_cast<int>(std::lround(cum / hi * (plotw - 1)));
-        x1 = std::min(x1, r.right());
-        if (x1 <= x0) continue;
-        char32_t fc = series_char(o, s);
-        cv.hline(x0, gy, x1 - x0, fc, static_cast<uint8_t>(ds.series[s].color));
-        if (rows_per >= 2 && gy + 1 <= r.y + avail_rows - 1)
-          cv.hline(x0, gy + 1, std::max(1, x1 - x0 - 1), G.blk[1], static_cast<uint8_t>(ds.series[s].color));
-      }
-      if (o.values) {
-        std::string vl = fmt_val(cum, o.prec);
-        int x = plotx + static_cast<int>(std::lround(cum / hi * (plotw - 1))) + 1;
-        int len = static_cast<int>(cp_len(vl));
-        if (x + len <= r.right() + 1) cv.text(x, gy, vl, S.value);
-      }
-    } else {
-      for (std::size_t s = 0; s < ns; s++) {
-        double v = i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
-        if (!std::isfinite(v)) continue;
-        int brow = gy + static_cast<int>(s) * rows_per;
-        if (brow > r.y + avail_rows - 1) break;
-        int len = static_cast<int>(std::lround(v / hi * (plotw - 1)));
-        if (len < 0) len = 0;
-        uint8_t c = static_cast<uint8_t>(ds.series[s].color);
-        if (len > 0) {
-          cv.hline(plotx, brow, len, series_char(o, s), c);
-          if (rows_per >= 2 && brow + 1 <= r.y + avail_rows - 1)
-            cv.hline(plotx, brow + 1, std::max(1, len - 1), G.blk[1], c);
-        }
-        if (o.values) {
-          std::string vl = fmt_val(v, o.prec);
-          int x = plotx + len + 1;
-          int vlen = static_cast<int>(cp_len(vl));
-          if (x + vlen <= r.right() + 1) cv.text(x, brow, vl, S.value);
-        }
-      }
-    }
-    y += group_h;
-  }
-
-  // bottom scale
-  int ay = std::min(r.bottom(), y);
-  cv.hline(plotx, ay, plotw, G.h, S.axis);
   for (double t : ticks) {
-    int x = plotx + static_cast<int>(std::lround(t / hi * (plotw - 1)));
-    if (x < plotx || x > r.right()) continue;
-    cv.put(x, ay, G.tt, S.axis);
+    double x = X(t);
     std::string lab = fmt_axis(t);
     int len = static_cast<int>(cp_len(lab));
-    cv.text_c(x - len / 2, ay + 1, len + 1, lab, S.tick);
-  }
-}
-
-// ---- line / area -----------------------------------------------------------
-
-static void connect(Canvas &cv, int x0, int y0, int x1, int y1, uint8_t color) {
-  if (x1 <= x0) return;
-  int prev = y0;
-  for (int x = x0 + 1; x <= x1; x++) {
-    double f = static_cast<double>(x - x0) / (x1 - x0);
-    int y = static_cast<int>(std::lround(y0 + f * (y1 - y0)));
-    if (y == prev) {
-      cv.put(x, y, G.h, color);
+    if (p.fine) {
+      sf.vline(static_cast<int>(x), p.ph + 1, p.ph + 3, Ink(S.axis));
+      if (o.grid) sf.dotted_v(static_cast<int>(x), 0, p.ph - 1, Ink(S.grid), 4);
     } else {
-      int step = (y > prev) ? 1 : -1;
-      for (int yy = prev + step; yy != y; yy += step) cv.put(x, yy, G.v, color);
-      cv.put(x, y, step > 0 ? U'\\' : U'/', color);
+      sc.cv.put(static_cast<int>(p.cellx(x)), gy + gh, G.tt, S.axis);
+      if (o.grid) sc.cv.vline(static_cast<int>(p.cellx(x)), gy, gh, G.dot, S.grid);
     }
-    prev = y;
+    double tx = p.cellx(x) - len / 2.0;
+    if (!p.fine) tx = std::floor(tx + 0.5);
+    tx = std::max<double>(r.x, std::min<double>(tx, r.right() + 1 - len));
+    sc.text(tx, p.fine ? gy + gh + 0.45 : gy + gh + 1, lab, S.tick);
   }
+  if (!o.xlabel.empty()) sc.cv.text_c(gx, r.bottom(), gw, o.xlabel, S.xlabel);
+
+  double slot = static_cast<double>(p.ph) / n;
+  double group = std::max(1.0, std::floor(slot * (ns > 1 ? 0.8 : 0.66)));
+  if (!p.fine) group = std::max(1.0, std::floor(slot) - (slot >= 3 * p.sy ? p.sy : 0));
+  double bar_h = group / ns;
+  double zero = X(std::max(lo, std::min(hi, 0.0)));
+  double dx = (p.fine && o.depth > 0 && !by_shade(o)) ? std::min<double>(o.depth * 3.0, std::max(2.0, bar_h * 0.5)) : 0;
+  double dy = dx * 0.7;
+  if (p.fine) sf.vline(static_cast<int>(zero) - (lo >= 0 ? 1 : 0), 0, p.ph, Ink(S.axis));
+  else sc.cv.vline(gx - 1, gy, gh, G.v, S.axis);
+
+  for (std::size_t i = 0; i < n; i++) {
+    double gy0 = i * slot + (slot - group) / 2 + dy / 2;
+    std::string lab = i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1);
+    lab = trunc_to(lab, static_cast<std::size_t>(gut - 1));
+    double ly = p.celly(gy0 + group / 2) - 0.5;
+    if (!p.fine) ly = std::floor(ly + 0.5);
+    sc.text(r.x + gut - 1 - static_cast<int>(cp_len(lab)), std::min<double>(ly, gy + gh - 1), lab, S.label);
+    for (std::size_t s = 0; s < ns; s++) {
+      double v = cell_at(ds, s, i);
+      if (!std::isfinite(v)) continue;
+      double y0 = gy0 + s * bar_h, y1 = y0 + bar_h;
+      if (p.fine && ns > 1 && bar_h >= 6) y1 -= 1;
+      double xv = X(v);
+      double xa = std::min(zero, xv), xb = std::max(zero, xv) + 1;
+      uint8_t c = static_cast<uint8_t>(ds.series[s].color);
+      if (ns == 1 && i < ds.labels.size()) {
+        int pin = pinned_color(o, ds.labels[i], static_cast<std::size_t>(-1));
+        if (pin >= 0) c = static_cast<uint8_t>(pin);
+      }
+      if (dx > 0) {
+        sf.poly({{xa, y0}, {xb, y0}, {xb + dx, y0 - dy}, {xa + dx, y0 - dy}}, top_ink(c));
+        sf.poly({{xb, y0}, {xb + dx, y0 - dy}, {xb + dx, y1 - dy}, {xb, y1}}, side_ink(c));
+      }
+      sf.rect(xa, y0, xb, y1, fill_ink(o, c, s));
+      if (p.fine && bar_h >= 5) {
+        Ink edge(panel_color());
+        sf.hline(static_cast<int>(xa), static_cast<int>(xb) - 1, static_cast<int>(std::lround(y0)), edge);
+        sf.hline(static_cast<int>(xa), static_cast<int>(xb) - 1, static_cast<int>(std::lround(y1)) - 1, edge);
+        sf.vline(static_cast<int>(xb) - 1, static_cast<int>(std::lround(y0)), static_cast<int>(std::lround(y1)) - 1, edge);
+        if (dx > 0) {
+          sf.line(xa, y0, xa + dx, y0 - dy, edge);
+          sf.line(xa + dx, y0 - dy, xb + dx, y0 - dy, edge);
+          sf.line(xb + dx, y0 - dy, xb + dx, y1 - dy, edge);
+          sf.line(xb - 1, y0, xb + dx - 1, y0 - dy, edge);
+        }
+      } else if (!p.fine && !by_shade(o) && bar_h >= 2 && xb - xa >= 3) {
+        sf.rect(xa, y1 - 1, xb, y1, side_ink(c));
+      }
+      p.remember(static_cast<int>(s), static_cast<int>(i), xv + dx, (y0 + y1) / 2 - dy / 2, 0.0);
+      if (o.values) {
+        std::string vl = fmt_val(v, o.prec);
+        double tx = p.cellx(xb + dx) + 0.6, ty = p.celly((y0 + y1) / 2 - dy / 2) - 0.5;
+        if (!p.fine) { tx = std::ceil(tx); ty = std::floor(ty + 0.5); }
+        if (tx + cp_len(vl) <= clip.right() + 1) sc.text(tx, ty, vl, S.value);
+      }
+    }
+  }
+  return p;
 }
 
-static void draw_lines(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o, bool area) {
+// ---- line / area -------------------------------------------------------------
+
+Plot draw_lines(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, bool area) {
   std::size_t n = ds.nrows();
-  if (n == 0 || ds.series.empty()) return;
   const std::vector<std::string> *cats = (ds.labels.size() == n) ? &ds.labels : nullptr;
 
   double lo = 0, hi = 0;
   ds.bounds(lo, hi);
-  if (o.has_lo) lo = o.lo;
-  if (o.has_hi) hi = o.hi;
   if (area && o.zero_base) {
     if (lo > 0) lo = 0;
     if (hi < 0) hi = 0;
   }
-  if (!(hi > lo)) hi = lo + 1;
+  double pad = (hi - lo) * 0.05;
+  if (!(area && lo == 0) && lo != 0) lo -= (lo > 0 && lo - pad < 0) ? lo : pad;
+  hi += pad * (o.values ? 2 : 1);
+  if (o.has_lo) lo = o.lo;
+  if (o.has_hi) hi = o.hi;
+  std::vector<double> ticks = nice_range(lo, hi, std::max(3, std::min(9, r.h / 3)), o.has_lo, o.has_hi);
 
-  Axes ax = make_axes(cv, r, lo, hi, o, cats, o.ylabel, false, 0, 1);
-  int base = ax.row_of(0);
-  bool do_fill = area && ds.series.size() <= 2;
+  Plot p = make_axes(sc, r, clip, lo, hi, ticks, o, cats, false, 0, 1);
+  if (n == 0 || ds.series.empty()) return p;
+  Surface &sf = *p.sf;
+  double base = p.Y(std::max(lo, std::min(hi, 0.0)));
+  int width = p.fine ? (p.ph > 160 ? 3 : 2) : 1;
+  double mr = p.fine ? (n > 40 ? 2.5 : 4) : 0;
 
-  for (std::size_t s = 0; s < ds.series.size(); s++) {
-    const Series &se = ds.series[s];
-    uint8_t c = static_cast<uint8_t>(se.color);
-    std::vector<int> px, py;
-    for (std::size_t i = 0; i < n; i++) {
-      double v = i < se.v.size() ? se.v[i] : std::nan("");
-      if (!std::isfinite(v)) continue;
-      px.push_back(ax.col_center(static_cast<int>(i), static_cast<int>(n)));
-      py.push_back(ax.row_of(v));
-    }
-    if (px.empty()) continue;
+  // Areas go down tallest first, so a smaller series is never buried.
+  std::vector<std::size_t> order;
+  for (std::size_t s = 0; s < ds.series.size(); s++) order.push_back(s);
+  if (area)
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t x, std::size_t y) {
+      double nx = std::max<double>(1, ds.series[x].v.size()), ny = std::max<double>(1, ds.series[y].v.size());
+      return ds.sum(x) / nx > ds.sum(y) / ny;
+    });
 
-    if (do_fill) {
-      char32_t sh = (!o.color || ieq(o.palette, "mono"))
-                        ? series_char(o, s)
-                        : ((s == 0) ? G.blk[2] : G.blk[3]);
-      for (std::size_t k = 0; k + 1 < px.size(); k++) {
-        int x0 = px[k], x1 = px[k + 1];
-        for (int x = x0; x <= x1; x++) {
-          double f = (x1 == x0) ? 0 : static_cast<double>(x - x0) / (x1 - x0);
-          int y = static_cast<int>(std::lround(py[k] + f * (py[k + 1] - py[k])));
-          int a = std::min(y, base), b = std::max(y, base);
-          for (int yy = a; yy <= b; yy++)
-            if (yy >= ax.gy && yy < ax.by) cv.put(x, yy, sh, c);
+  for (int pass = area ? 0 : 1; pass < 2; pass++) {
+    for (std::size_t s : order) {
+      const Series &se = ds.series[s];
+      uint8_t c = static_cast<uint8_t>(se.color);
+      std::vector<Pt> pts;
+      std::vector<int> idx;
+      for (std::size_t i = 0; i < n; i++) {
+        double v = cell_at(ds, s, i);
+        if (!std::isfinite(v)) continue;
+        pts.push_back(Pt{p.ox + (i + 0.5) * p.pw / n, p.Y(v)});
+        idx.push_back(static_cast<int>(i));
+      }
+      if (pts.empty()) continue;
+      if (pass == 0) {
+        std::vector<Pt> poly = pts;
+        poly.push_back(Pt{pts.back().x, base});
+        poly.push_back(Pt{pts.front().x, base});
+        sf.poly(poly, by_shade(o) ? fill_ink(o, c, s) : Ink(c, panel_color(), 2));
+        continue;
+      }
+      for (std::size_t k = 0; k + 1 < pts.size(); k++)
+        sf.line(pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y, Ink(c), width);
+      for (std::size_t k = 0; k < pts.size(); k++) {
+        if (p.fine) {
+          sf.marker(pts[k].x, pts[k].y, static_cast<int>(s), mr + 1, Ink(panel_color()));
+          sf.marker(pts[k].x, pts[k].y, static_cast<int>(s), mr, Ink(c));
         }
+        p.remember(static_cast<int>(s), idx[k], pts[k].x, pts[k].y);
+        if (o.values && (ds.series.size() == 1 || n <= 8))
+          p.label(pts[k].x, pts[k].y - p.sy * 0.75 - mr, fmt_val(cell_at(ds, s, static_cast<std::size_t>(idx[k])), o.prec),
+                  ds.series.size() == 1 ? S.value : c);
       }
     }
-
-    for (std::size_t k = 0; k + 1 < px.size(); k++) connect(cv, px[k], py[k], px[k + 1], py[k + 1], c);
-    for (std::size_t k = 0; k < px.size(); k++) cv.put(px[k], py[k], marker_for(s), c);
   }
+  return p;
 }
 
-// ---- scatter ---------------------------------------------------------------
+// ---- scatter -----------------------------------------------------------------
 
-static void draw_scatter(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o) {
+Plot draw_scatter(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
   std::size_t n = ds.nrows();
-  if (n == 0 || ds.series.empty()) return;
-
   const Series *xs = nullptr;
   std::size_t start = 0;
-  if (ds.series.size() >= 2 && ds.series[0].name == "\x01x") {
-    xs = &ds.series[0];
-    start = 1;
-  } else if (o.xy && ds.series.size() >= 2) {
+  if (ds.series.size() >= 2 && (hidden_series(ds.series[0]) || o.xy)) {
     xs = &ds.series[0];
     start = 1;
   }
 
   double xlo = 1e300, xhi = -1e300, ylo = 1e300, yhi = -1e300;
-  for (std::size_t s = start; s < ds.series.size(); s++) {
+  auto xval = [&](std::size_t i) {
+    return xs ? (i < xs->v.size() ? xs->v[i] : std::nan("")) : static_cast<double>(i + 1);
+  };
+  for (std::size_t s = start; s < ds.series.size(); s++)
     for (std::size_t i = 0; i < n; i++) {
-      if (i >= ds.series[s].v.size()) break;
-      double y = ds.series[s].v[i];
-      if (!std::isfinite(y)) continue;
-      double x = xs ? (i < xs->v.size() ? xs->v[i] : std::nan("")) : static_cast<double>(i);
-      if (!std::isfinite(x)) continue;
+      double y = cell_at(ds, s, i), x = xval(i);
+      if (!std::isfinite(y) || !std::isfinite(x)) continue;
       xlo = std::min(xlo, x);
       xhi = std::max(xhi, x);
       ylo = std::min(ylo, y);
       yhi = std::max(yhi, y);
     }
-  }
-  if (xhi < xlo) return;
+  if (xhi < xlo) { xlo = ylo = 0; xhi = yhi = 1; }
+  double padx = (xhi - xlo) * 0.04, pady = (yhi - ylo) * 0.06;
+  xlo -= padx; xhi += padx;
+  ylo -= pady; yhi += pady;
   if (o.has_lo) ylo = o.lo;
   if (o.has_hi) yhi = o.hi;
-  if (!(yhi > ylo)) yhi = ylo + 1;
   if (!(xhi > xlo)) xhi = xlo + 1;
+  std::vector<double> ticks = nice_range(ylo, yhi, std::max(3, std::min(9, r.h / 3)), o.has_lo, o.has_hi);
 
-  Axes ax = make_axes(cv, r, ylo, yhi, o, nullptr, o.ylabel, true, xlo, xhi);
-
+  Plot p = make_axes(sc, r, clip, ylo, yhi, ticks, o, nullptr, true, xlo, xhi);
+  double mr = p.fine ? (n > 60 ? 2 : 3.5) : 0;
   for (std::size_t s = start; s < ds.series.size(); s++) {
     uint8_t c = static_cast<uint8_t>(ds.series[s].color);
-    char32_t mk = marker_for(s - start);
     for (std::size_t i = 0; i < n; i++) {
-      if (i >= ds.series[s].v.size()) break;
-      double y = ds.series[s].v[i];
-      if (!std::isfinite(y)) continue;
-      double x = xs ? (i < xs->v.size() ? xs->v[i] : std::nan("")) : static_cast<double>(i);
-      if (!std::isfinite(x)) continue;
-      int cx = ax.gx + static_cast<int>(std::lround((x - xlo) / (xhi - xlo) * (ax.gw - 1)));
-      cv.put(cx, ax.row_of(y), mk, c);
+      double y = cell_at(ds, s, i), x = xval(i);
+      if (!std::isfinite(y) || !std::isfinite(x)) continue;
+      double px = p.ox + (x - xlo) / (xhi - xlo) * (p.pw - 1), py = p.Y(y);
+      if (p.fine) {
+        p.sf->marker(px, py, static_cast<int>(s - start), mr + 1, Ink(panel_color()));
+        p.sf->marker(px, py, static_cast<int>(s - start), mr, Ink(c));
+      } else {
+        p.sf->set(static_cast<int>(px), static_cast<int>(std::min<double>(py, p.ph - 1)), Ink(c));
+      }
+      p.remember(static_cast<int>(s), static_cast<int>(i), px, py);
     }
   }
+  return p;
 }
 
-// ---- pie -------------------------------------------------------------------
+// ---- pie ---------------------------------------------------------------------
 
 struct Slice {
   std::string name;
   double val = 0;
   int color = 7;
-  double a0 = 0, a1 = 0; // normalised angle range [0,1) clockwise from 12 o'clock
+  int row = 0;          // where it came from, for annotations and the cursor
+  double a0 = 0, a1 = 0; // fraction of a turn, clockwise from 12 o'clock
+  double cx = 0, cy = 0; // its own centre: an exploded slice is moved out
 };
 
-static double norm_angle(double dx, double dy) {
-  double a = std::atan2(dy, dx);           // -pi..pi, 0 = +x
-  double f = (a + PI / 2) / (2 * PI);      // rotate so 0 = up
-  while (f < 0) f += 1;
-  while (f >= 1) f -= 1;
-  return f;
-}
+Plot draw_pie(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, bool solid, double hole) {
+  Plot p;
+  p.sc = &sc;
+  p.clip = clip;
+  p.fine = sc.mode().pixel;
+  p.sx = sc.mode().sx();
+  p.sy = sc.mode().sy();
 
-static bool in_ellipse(int x, int y, int cx, int cy, double rx, double ry, double hole) {
-  if (rx <= 0 || ry <= 0) return false;
-  double dx = (x - cx) / rx;
-  double dy = (y - cy) / ry;
-  double r = std::sqrt(dx * dx + dy * dy);
-  return r <= 1.0 && r >= hole;
-}
-
-// widest cells of an ellipse at row y; orr < ol means the row misses it
-static void ellipse_span(int y, int cx, int cy, int rx, int ry, int &ol, int &orr) {
-  ol = 0;
-  orr = -1;
-  if (ry <= 0) return;
-  double dy = static_cast<double>(y - cy) / ry;
-  if (dy < -1 || dy > 1) return;
-  double w = rx * std::sqrt(std::max(0.0, 1 - dy * dy));
-  ol = cx - static_cast<int>(std::lround(w));
-  orr = cx + static_cast<int>(std::lround(w));
-}
-
-static void draw_pie(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o, int depth, double hole) {
   std::vector<Slice> sl;
   double total = 0;
-  if (ds.series.size() == 1) {
-    for (std::size_t i = 0; i < ds.nrows(); i++) {
-      double v = i < ds.series[0].v.size() ? ds.series[0].v[i] : 0;
-      if (!std::isfinite(v) || v <= 0) continue;
+  const bool by_row = ds.series.size() == 1 || (ds.series.size() == 2 && hidden_series(ds.series[0]));
+  if (by_row) {
+    const Series &se = ds.series.back();
+    for (std::size_t i = 0; i < se.v.size(); i++) {
+      if (!std::isfinite(se.v[i]) || se.v[i] <= 0) continue;
       Slice s;
-      s.name = (i < ds.labels.size()) ? ds.labels[i] : std::to_string(i + 1);
-      s.val = v;
-      s.color = ds.series[0].color;
+      s.name = i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1);
+      s.val = se.v[i];
+      s.row = static_cast<int>(i);
       sl.push_back(s);
-      total += v;
+      total += s.val;
     }
-    // give each slice its own colour
     std::vector<int> cols = palette_cols(o.palette, sl.size());
-    for (std::size_t i = 0; i < sl.size(); i++) sl[i].color = cols[i];
+    for (std::size_t i = 0; i < sl.size(); i++) {
+      int pin = pinned_color(o, sl[i].name, i);
+      sl[i].color = pin >= 0 ? pin : cols[i];
+    }
   } else {
-    for (const auto &s : ds.series) {
+    for (std::size_t k = 0; k < ds.series.size(); k++) {
       double v = 0;
-      for (double x : s.v)
+      for (double x : ds.series[k].v)
         if (std::isfinite(x) && x > 0) v += x;
-      if (v <= 0) continue;
+      if (v <= 0 || hidden_series(ds.series[k])) continue;
       Slice e;
-      e.name = s.name;
+      e.name = ds.series[k].name;
       e.val = v;
-      e.color = s.color;
+      e.color = ds.series[k].color;
+      e.row = static_cast<int>(k);
       sl.push_back(e);
       total += v;
     }
   }
   if (sl.empty() || total <= 0) {
-    cv.text_c(r.x, r.y + r.h / 2, r.w, "(no positive values for a pie)", S.subtitle);
-    return;
+    sc.cv.text_c(r.x, r.y + r.h / 2, r.w, "(no positive values for a pie)", S.subtitle);
+    return p;
   }
-
   double acc = 0;
   for (auto &s : sl) {
     s.a0 = acc;
     acc += s.val / total;
     s.a1 = acc;
   }
+  sl.back().a1 = 1.0;
 
   int explode = -1;
-  if (o.explode == -1) {
+  int want = o.cur_index >= 0 ? -3 : o.explode;
+  if (want == -1) {
     double best = -1;
     for (std::size_t i = 0; i < sl.size(); i++)
       if (sl[i].val > best) { best = sl[i].val; explode = static_cast<int>(i); }
-  } else if (o.explode >= 0 && o.explode < static_cast<int>(sl.size())) {
-    explode = o.explode;
+  } else if (want == -3) {
+    for (std::size_t i = 0; i < sl.size(); i++)
+      if (sl[i].row == o.cur_index) explode = static_cast<int>(i);
+  } else if (want >= 0) {
+    for (std::size_t i = 0; i < sl.size(); i++)
+      if (sl[i].row == want) explode = static_cast<int>(i);
   }
 
   // legend first: it decides how much room the pie gets
-  int legend_rows = 0;
   std::vector<LegEntry> leg;
   for (std::size_t i = 0; i < sl.size(); i++)
-    leg.push_back({sl[i].name, sl[i].color, fmt_val(sl[i].val) + "  " + fmt_pct(sl[i].val / total, 1),
-                   series_char(o, i)});
-  int legw = legend_width(leg) + 2;
-  bool leg_right = (r.w - legw >= 18) && static_cast<int>(leg.size()) <= r.h;
-  Rect pie_area = r;
-  if (leg_right) {
-    legend_draw(cv, Rect{r.right() - legw + 1, r.y, legw, r.h}, leg, true);
-    pie_area.w = r.w - legw - 1;
-  } else {
-    legend_rows = std::min<int>(3, static_cast<int>((leg.size() + 2) / 3));
-    legend_draw(cv, Rect{r.x, r.bottom() - legend_rows + 1, r.w, legend_rows}, leg, false);
-    pie_area.h = r.h - legend_rows - 1;
+    leg.push_back({sl[i].name, sl[i].color, fmt_val(sl[i].val, o.prec) + "  " + fmt_pct(sl[i].val / total, 1),
+                   by_shade(o) ? static_cast<int>(i % 4) : 0});
+  Rect area = r;
+  if (o.legend) {
+    int legw = legend_width(leg) + 1;
+    if (r.w - legw >= 22 && static_cast<int>(leg.size()) <= r.h) {
+      int ly = r.y + std::max(0, (r.h - static_cast<int>(leg.size())) / 2);
+      legend_draw(sc, Rect{r.right() - legw + 1, ly, legw, r.h - (ly - r.y)}, leg, true);
+      area.w = r.w - legw - 2;
+    } else {
+      for (auto &e : leg) e.val = fmt_pct(sl[static_cast<std::size_t>(&e - &leg[0])].val / total, 0);
+      int rows = std::min(std::max(1, r.h / 3), legend_rows_needed(leg, r.w));
+      legend_draw(sc, Rect{r.x, r.bottom() - rows + 1, r.w, rows}, leg, false);
+      area.h = r.h - rows - 1;
+    }
   }
-  if (pie_area.w < 8 || pie_area.h < 5) return;
+  if (area.w < 8 || area.h < 4) return p;
 
-  int span = pie_area.h - 2; // one row of shadow, one of air
-  int rx_w = pie_area.w / 2 - 2;
-  int ry_max = std::max(1, (span - depth - 1) / 2);
-  int rx = std::min(rx_w, ry_max * 2);
-  if (rx < 2) rx = 2;
-  int ry = std::max(1, std::min(rx / 2, ry_max));
-  int cx = pie_area.x + pie_area.w / 2;
-  int cy = pie_area.y + 1 + ry + std::max(0, (span - (2 * ry + depth)) / 2);
+  p.cells = area;
+  p.clip = area;
+  p.sf = &sc.surface(area);
+  Surface &sf = *p.sf;
+  p.pw = sf.w();
+  p.ph = sf.h();
+  const double asp = sf.aspect();
+  const double tilt = solid ? 0.56 : 1.0;
+  double dp = 0; // wall height, pixels
+  if (solid && o.depth > 0) dp = p.fine ? o.depth * 9.0 : std::max(1.0, o.depth * (p.sy == 2 ? 1.0 : 0.5));
+  double margin = p.fine ? 6 : 1;
+  double room_x = sf.w() / 2.0 - margin, room_y = (sf.h() - dp) / 2.0 - margin / asp;
+  double R = std::min(room_x, room_y * asp / tilt);
+  if (explode >= 0) R /= 1.12;
+  if (R < 2) return p;
+  const double ry = R * tilt / asp;
+  const double cx = sf.w() / 2.0, cy = (sf.h() - dp) / 2.0;
 
-  // never paint over the frame, whatever the explode offset does
-  auto pput = [&](int x, int y, char32_t ch, uint8_t col) {
-    if (x < pie_area.x || x > pie_area.right() || y < pie_area.y || y > pie_area.bottom()) return;
-    cv.put(x, y, ch, col);
+  for (std::size_t i = 0; i < sl.size(); i++) {
+    sl[i].cx = cx;
+    sl[i].cy = cy;
+    if (static_cast<int>(i) == explode) {
+      double ang = (sl[i].a0 + sl[i].a1) * PI - PI / 2;
+      sl[i].cx += std::cos(ang) * R * 0.13;
+      sl[i].cy += std::sin(ang) * ry * 0.13;
+    }
+  }
+
+  // Who owns each pixel of the top face.
+  const int W = sf.w(), H = sf.h();
+  std::vector<int> own(static_cast<std::size_t>(W) * H, -1);
+  auto in_ring = [&](int x, int y, double ox, double oy, double &f) {
+    double dx = (x + 0.5 - ox) / R, dy = (y + 0.5 - oy) / ry;
+    double rr = dx * dx + dy * dy;
+    if (rr > 1.0 || rr < hole * hole) return false;
+    f = (std::atan2(dy, dx) + PI / 2) / (2 * PI);
+    if (f < 0) f += 1;
+    return true;
   };
-
-  double ox = 0, oy = 0;
-  if (explode >= 0) {
-    double mid = (sl[static_cast<std::size_t>(explode)].a0 + sl[static_cast<std::size_t>(explode)].a1) / 2;
-    double ang = mid * 2 * PI - PI / 2;
-    ox = std::lround(std::cos(ang) * rx * 0.18);
-    oy = std::lround(std::sin(ang) * ry * 0.55);
-    if (ox == 0 && oy == 0) ox = 1;
-  }
-
-  // Which slice owns this cell? The popped-out slice is checked first, but only
-  // inside its own wedge, otherwise it would swallow the neighbours; and its
-  // old wedge is left empty so the gap reads as a pop-out.
   auto probe = [&](int x, int y) -> int {
-    if (explode >= 0) {
-      int ecx = cx + static_cast<int>(ox), ecy = cy + static_cast<int>(oy);
-      if (in_ellipse(x, y, ecx, ecy, rx, ry, hole)) {
-        double f = norm_angle(static_cast<double>(x - ecx) / rx, static_cast<double>(y - ecy) / ry);
-        const Slice &e = sl[static_cast<std::size_t>(explode)];
-        if (f >= e.a0 && f < e.a1) return explode;
-      }
+    double f = 0;
+    if (explode >= 0) { // the moved slice gets first refusal, inside its own wedge
+      const Slice &e = sl[static_cast<std::size_t>(explode)];
+      if (in_ring(x, y, e.cx, e.cy, f) && f >= e.a0 && f < e.a1) return explode;
     }
-    if (!in_ellipse(x, y, cx, cy, rx, ry, hole)) return -1;
-    double f = norm_angle(static_cast<double>(x - cx) / rx, static_cast<double>(y - cy) / ry);
-    for (std::size_t i = 0; i < sl.size(); i++) {
-      if (f >= sl[i].a0 && f < sl[i].a1) return static_cast<int>(i) == explode ? -1 : static_cast<int>(i);
-    }
-    return static_cast<int>(sl.size()) - 1 == explode ? -1 : static_cast<int>(sl.size()) - 1;
+    if (!in_ring(x, y, cx, cy, f)) return -1;
+    for (std::size_t k = 0; k < sl.size(); k++)
+      if (f >= sl[k].a0 && f < sl[k].a1) return static_cast<int>(k) == explode ? -1 : static_cast<int>(k);
+    return -1;
   };
+  for (int y = 0; y < H; y++)
+    for (int x = 0; x < W; x++) own[static_cast<std::size_t>(y) * W + x] = probe(x, y);
+  auto owner = [&](int x, int y) { return (x < 0 || y < 0 || x >= W || y >= H) ? -1 : own[static_cast<std::size_t>(y) * W + x]; };
 
-  // drop shadow: the silhouette shifted one cell right, a few rows down, and
-  // clipped so it only ever shows to the right of and below the pie itself.
-  for (int y = cy - ry; y <= cy + ry + depth + 1; y++) {
-    int sl = 0, sr = -1;
-    ellipse_span(y - depth - 1, cx, cy, rx, ry, sl, sr);
-    if (sr < sl) continue;
-    sl += 1;
-    sr += 1;
-    int ol = 0, orr = -1;
-    if (y <= cy + ry) ellipse_span(y, cx, cy, rx, ry, ol, orr);
-    else ellipse_span(y - depth, cx, cy, rx, ry, ol, orr);
-    int x0 = (orr >= ol) ? std::max(sl, orr + 1) : sl;
-    for (int x = x0; x <= sr; x++) pput(x, y, G.blk[1], S.shadow);
-  }
-
-  // 3-D wall: the swept side, drawn from the feet of the top face
-  if (depth > 0) {
-    for (int y = cy + 1; y <= cy + ry + depth; y++)
-      for (int x = cx - rx; x <= cx + rx; x++) {
-        int s = probe(x, y - depth);
-        if (s < 0) continue;
-        pput(x, y, G.blk[1], static_cast<uint8_t>(sl[static_cast<std::size_t>(s)].color));
+  // The wall: every top pixel swept downwards.  The nearest source wins, which
+  // draws the rim, the inside of a donut and the cut faces of a moved slice.
+  const int idp = static_cast<int>(std::lround(dp));
+  std::vector<int> wall(own.size(), -1);
+  if (idp > 0)
+    for (int y = 0; y < H; y++)
+      for (int x = 0; x < W; x++) {
+        if (owner(x, y) >= 0) continue;
+        for (int dz = 1; dz <= idp; dz++) {
+          int s = owner(x, y - dz);
+          if (s >= 0) { wall[static_cast<std::size_t>(y) * W + x] = s; break; }
+        }
       }
-  }
 
-  // the top face
-  for (int y = cy - ry; y <= cy + ry; y++)
-    for (int x = cx - rx; x <= cx + rx; x++) {
-      int s = probe(x, y);
-      if (s < 0) continue;
-      pput(x, y, series_char(o, static_cast<std::size_t>(s)),
-           static_cast<uint8_t>(sl[static_cast<std::size_t>(s)].color));
+  const Ink edge(panel_color());
+  for (int y = 0; y < H; y++)
+    for (int x = 0; x < W; x++) {
+      int s = own[static_cast<std::size_t>(y) * W + x], ws = wall[static_cast<std::size_t>(y) * W + x];
+      if (s >= 0) {
+        // A black seam between slices, and along the rim where the wall starts.
+        int rgt = owner(x + 1, y), dn = owner(x, y + 1);
+        bool rim = dn < 0 && y + 1 < H && wall[static_cast<std::size_t>(y + 1) * W + x] >= 0;
+        if (p.fine && ((rgt >= 0 && rgt != s) || (dn >= 0 && dn != s) || rim)) sf.set(x, y, edge);
+        else sf.set(x, y, fill_ink(o, sl[static_cast<std::size_t>(s)].color, static_cast<std::size_t>(s)));
+      } else if (ws >= 0) {
+        int right = (x + 1 < W) ? wall[static_cast<std::size_t>(y) * W + x + 1] : -1;
+        if (p.fine && right >= 0 && right != ws) sf.set(x, y, edge);
+        else if (by_shade(o)) sf.set(x, y, Ink(15, 0, 3));
+        else sf.set(x, y, side_ink(static_cast<uint8_t>(sl[static_cast<std::size_t>(ws)].color)));
+      }
     }
 
-  // percentage inside fat slices
-  if (rx >= 10 && o.color) {
-    for (std::size_t i = 0; i < sl.size(); i++) {
-      double pct = sl[i].val / total * 100;
-      if (pct < 6) continue;
-      double mid = (sl[i].a0 + sl[i].a1) / 2;
-      double ang = mid * 2 * PI - PI / 2;
-      int px = cx + static_cast<int>(std::lround(std::cos(ang) * rx * 0.62));
-      int py = cy + static_cast<int>(std::lround(std::sin(ang) * ry * 0.62));
-      int ecx = cx + static_cast<int>(ox), ecy = cy + static_cast<int>(oy);
-      if (static_cast<int>(i) == explode) { px = ecx + static_cast<int>(std::lround(std::cos(ang) * rx * 0.62)); py = ecy + static_cast<int>(std::lround(std::sin(ang) * ry * 0.62)); }
-      char buf[32];
-      std::snprintf(buf, sizeof buf, "%.0f%%", pct);
-      std::string t(buf);
-      int len = static_cast<int>(cp_len(t));
-      int tx = px - len / 2;
-      bool clear = true;
-      for (int k = 0; k < len; k++) {
-        int s = probe(tx + k, py);
-        if (s != static_cast<int>(i)) clear = false;
-      }
-      if (!clear) continue;
-      cv.text(tx, py, t, contrast_on(static_cast<uint8_t>(sl[i].color)));
-    }
+  // percentages inside the fat slices; anchors for annotations
+  const double lr = hole > 0 ? (1 + hole) / 2 : 0.64;
+  for (std::size_t i = 0; i < sl.size(); i++) {
+    double frac = sl[i].val / total;
+    double ang = (sl[i].a0 + sl[i].a1) * PI - PI / 2;
+    double px = sl[i].cx + std::cos(ang) * R * lr, py = sl[i].cy + std::sin(ang) * ry * lr;
+    p.remember(by_row ? -1 : sl[i].row, by_row ? sl[i].row : -1, sl[i].cx + std::cos(ang) * R * 0.9,
+               sl[i].cy + std::sin(ang) * ry * 0.9, ang);
+    if (frac < (p.fine ? 0.04 : 0.07) || R < (p.fine ? 40 : 8)) continue;
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%.0f%%", frac * 100);
+    uint8_t c = static_cast<uint8_t>(sl[i].color);
+    if (by_shade(o)) p.label(px, py, buf, 15, 0);
+    else p.label(px, py, buf, contrast_on(c), p.fine ? -1 : c);
   }
+  return p;
 }
 
-// ---- table -----------------------------------------------------------------
+// ---- table -------------------------------------------------------------------
 
-static void draw_table(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o) {
+void draw_table(Scene &sc, Rect r, Dataset &ds, const RenderOpts &o) {
+  Canvas &cv = sc.cv;
   std::size_t n = ds.nrows();
-  std::size_t ncol = ds.series.size() + 1;
-  if (n == 0 || ncol == 0) return;
+  std::vector<const Series *> cols;
+  for (const auto &s : ds.series) cols.push_back(&s);
+  if (n == 0 || cols.empty()) return;
 
-  std::vector<std::vector<std::string>> cells(n, std::vector<std::string>(ncol));
-  std::vector<std::string> hdr(ncol);
-  hdr[0] = "#";
-  for (std::size_t s = 0; s < ds.series.size(); s++) hdr[s + 1] = ds.series[s].name;
-  for (std::size_t i = 0; i < n; i++) {
-    cells[i][0] = (i < ds.labels.size()) ? ds.labels[i] : std::to_string(i + 1);
-    for (std::size_t s = 0; s < ds.series.size(); s++) {
-      double v = i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
-      cells[i][s + 1] = std::isfinite(v) ? fmt_val(v, o.prec) : "-";
-    }
+  std::vector<int> w(cols.size() + 1, 1);
+  for (std::size_t i = 0; i < n; i++)
+    w[0] = std::max(w[0], static_cast<int>(cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1))));
+  w[0] = std::min(w[0], 20);
+  for (std::size_t c = 0; c < cols.size(); c++) {
+    std::string name = hidden_series(*cols[c]) ? "x" : cols[c]->name;
+    w[c + 1] = std::max(3, static_cast<int>(cp_len(name)));
+    for (double v : cols[c]->v)
+      if (std::isfinite(v)) w[c + 1] = std::max(w[c + 1], static_cast<int>(cp_len(fmt_val(v, o.prec))));
+    w[c + 1] = std::min(w[c + 1], 16);
   }
-
-  std::vector<int> w(ncol, 1);
-  for (std::size_t c = 0; c < ncol; c++) {
-    w[c] = std::max(1, static_cast<int>(cp_len(hdr[c])));
-    for (std::size_t i = 0; i < n; i++) w[c] = std::max(w[c], static_cast<int>(cp_len(cells[i][c])));
-    w[c] = std::min(w[c], 18);
-  }
-  int frames = static_cast<int>(ncol) * 3 + 1;
-  int avail = r.w - frames;
-  while (avail < static_cast<int>(ncol) * 3 && ncol > 1) {
-    ncol--;
-    cells.assign(n, std::vector<std::string>(ncol));
-    hdr.resize(ncol);
-    w.resize(ncol);
-    frames = static_cast<int>(ncol) * 3 + 1;
-    avail = r.w - frames;
-    break;
-  }
-  int sum = 0;
-  for (std::size_t c = 0; c < ncol; c++) sum += w[c];
-  while (sum > avail) {
-    int widest = 0;
-    for (std::size_t c = 1; c < ncol; c++)
-      if (w[c] > w[widest]) widest = static_cast<int>(c);
-    if (w[static_cast<std::size_t>(widest)] <= 4) break;
-    w[static_cast<std::size_t>(widest)]--;
-    sum--;
-  }
+  std::size_t shown = cols.size();
+  auto width = [&]() {
+    int t = w[0];
+    for (std::size_t c = 0; c < shown; c++) t += w[c + 1] + 2;
+    return t;
+  };
+  while (shown > 1 && width() > r.w) shown--;
+  int x0 = r.x + std::max(0, (r.w - width()) / 2);
 
   int y = r.y;
-  // header
-  std::string rule;
-  {
-    int x = r.x;
-    for (std::size_t c = 0; c < ncol && x < r.right(); c++) {
-      std::string t = trunc_to(hdr[c], static_cast<std::size_t>(w[c]));
-      if (c == 0) cv.text(x, y, pad_right(t, static_cast<std::size_t>(w[c])) + " ", S.table_head);
-      else cv.text(x, y, " " + pad_left(t, static_cast<std::size_t>(w[c])), S.table_head);
-      x += w[c] + 2;
-    }
-    y++;
-    cv.hline(r.x, y, r.w, G.h, S.table_rule);
-    y++;
+  int x = x0 + w[0];
+  for (std::size_t c = 0; c < shown; c++) {
+    std::string name = hidden_series(*cols[c]) ? "x" : cols[c]->name;
+    cv.text_r(x + 2, y, w[c + 1], name, S.table_head);
+    x += w[c + 1] + 2;
   }
-
+  y++;
+  cv.hline(x0, y, std::min(width(), r.w), G.h, S.table_rule);
+  y++;
   int room = r.bottom() - y + 1;
   std::size_t show = n;
-  bool more = false;
-  if (static_cast<int>(n) > room) {
-    show = static_cast<std::size_t>(std::max(0, room - 1));
-    more = true;
-  }
-  for (std::size_t i = 0; i < show; i++) {
-    int x = r.x;
-    for (std::size_t c = 0; c < ncol; c++) {
-      std::string t = trunc_to(cells[i][c], static_cast<std::size_t>(w[c]));
-      if (c == 0) cv.text(x, y, pad_right(t, static_cast<std::size_t>(w[c])) + " ", S.table_row);
-      else cv.text(x, y, " " + pad_left(t, static_cast<std::size_t>(w[c])), S.table_row);
-      x += w[c] + 2;
+  if (static_cast<int>(n) > room) show = static_cast<std::size_t>(std::max(0, room - 1));
+  for (std::size_t i = 0; i < show; i++, y++) {
+    cv.text(x0, y, trunc_to(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1), static_cast<std::size_t>(w[0])),
+            S.label);
+    x = x0 + w[0];
+    for (std::size_t c = 0; c < shown; c++) {
+      double v = i < cols[c]->v.size() ? cols[c]->v[i] : std::nan("");
+      cv.text_r(x + 2, y, w[c + 1], std::isfinite(v) ? fmt_val(v, o.prec) : "-", S.table_row);
+      x += w[c + 1] + 2;
     }
-    y++;
   }
-  if (more) {
-    cv.text(r.x, y, "... " + std::to_string(n - show) + " more rows", S.subtitle);
-  }
+  if (show < n) cv.text(x0, y, "... " + std::to_string(n - show) + " more rows", S.subtitle);
+  if (shown < cols.size())
+    cv.text_r(r.x, r.y, r.w, "+" + std::to_string(cols.size() - shown) + " cols", S.subtitle);
 }
 
-// ---- histogram -------------------------------------------------------------
+// ---- histogram ---------------------------------------------------------------
 
-static void draw_hist(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o) {
-  if (ds.series.empty()) return;
-  const Series &s = ds.series[0];
+Plot draw_hist(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
+  const Series &s = ds.series[hidden_series(ds.series[0]) && ds.series.size() > 1 ? 1 : 0];
   double lo = 1e300, hi = -1e300;
   std::size_t cnt = 0;
   for (double v : s.v) {
@@ -902,63 +1111,262 @@ static void draw_hist(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o) {
     hi = std::max(hi, v);
     cnt++;
   }
-  if (cnt == 0) return;
-  if (!(hi > lo)) { hi = lo + 1; }
-
+  if (cnt == 0) return Plot();
+  if (!(hi > lo)) hi = lo + 1;
   int bins = std::max(1, std::min(60, o.bins));
-  std::vector<double> count(static_cast<std::size_t>(bins), 0);
   double step = (hi - lo) / bins;
-  for (double v : s.v) {
-    if (!std::isfinite(v)) continue;
-    int b = static_cast<int>((v - lo) / step);
-    if (b >= bins) b = bins - 1;
-    if (b < 0) b = 0;
-    count[static_cast<std::size_t>(b)] += 1;
-  }
 
   Dataset h;
-  h.source = ds.source;
-  h.title = o.title.empty() ? ("histogram of " + s.name) : o.title;
   Series hs;
   hs.name = "count";
-  for (int b = 0; b < bins; b++) {
-    h.labels.push_back(fmt_axis(lo + b * step));
-    hs.v.push_back(count[static_cast<std::size_t>(b)]);
-  }
   hs.color = s.color;
+  hs.v.assign(static_cast<std::size_t>(bins), 0);
+  for (double v : s.v) {
+    if (!std::isfinite(v)) continue;
+    // halves, so a range as wide as the doubles themselves cannot overflow
+    double f = (v / 2 - lo / 2) / (hi / 2 - lo / 2);
+    if (!std::isfinite(f)) f = 0;
+    int b = std::max(0, std::min(bins - 1, static_cast<int>(std::max(0.0, std::min(1.0, f)) * bins)));
+    hs.v[static_cast<std::size_t>(b)] += 1;
+  }
+  for (int b = 0; b < bins; b++) h.labels.push_back(fmt_axis(lo + b * step));
   h.series.push_back(hs);
 
   RenderOpts o2 = o;
-  o2.type = "bar";
-  o2.legend = false;
-  o2.title = h.title;
-  o2.ylabel = o.ylabel;
-  o2.xlabel = o.xlabel;
-  draw_bars(cv, r, h, o2, false);
+  o2.has_lo = o2.has_hi = false;
+  o2.cur_index = o2.cur_series = -1;
+  if (o2.xlabel.empty()) o2.xlabel = s.name;
+  if (o2.ylabel.empty()) o2.ylabel = "count";
+  return draw_bars(sc, r, clip, h, o2, false, true);
 }
 
-// ---- entry point -----------------------------------------------------------
+// ---- annotations -------------------------------------------------------------
 
-void render_chart(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o) {
+std::vector<std::string> wrap_text(const std::string &s, std::size_t width) {
+  std::vector<std::string> out;
+  for (const std::string &para : split(s, '\n')) {
+    std::string line;
+    for (const std::string &word : split_any(para, " \t")) {
+      if (word.empty()) continue;
+      if (!line.empty() && cp_len(line) + 1 + cp_len(word) > width) {
+        out.push_back(line);
+        line.clear();
+      }
+      line += (line.empty() ? "" : " ") + word;
+      while (cp_len(line) > width) {
+        out.push_back(trunc_to(line, width));
+        auto cps = utf8_decode(line);
+        std::string rest;
+        for (std::size_t k = width - 1; k < cps.size(); k++) rest += u32_to_utf8(cps[k]);
+        line = rest;
+      }
+    }
+    out.push_back(line);
+  }
+  while (out.size() > 1 && out.back().empty()) out.pop_back();
+  return out;
+}
+
+void draw_notes(Scene &sc, Plot &p, const Dataset &ds, const RenderOpts &o, bool pie) {
+  if (!p.sf) return;
+  Surface &sf = *p.sf;
+  std::vector<Box> placed;
+
+  auto row_of = [&](const Annotation &a) -> int {
+    if (!a.label.empty())
+      for (std::size_t i = 0; i < ds.labels.size(); i++)
+        if (ieq(trim(ds.labels[i]), trim(a.label))) return static_cast<int>(i);
+    if (a.index >= 0 && a.index < static_cast<int>(ds.nrows())) return a.index;
+    return -1;
+  };
+  auto series_of = [&](const Annotation &a) -> int {
+    if (!a.series.empty())
+      for (std::size_t i = 0; i < ds.series.size(); i++)
+        if (ieq(trim(ds.series[i].name), trim(a.series))) return static_cast<int>(i);
+    return a.series_i;
+  };
+  auto text_box = [&](double x, double y, const std::vector<std::string> &lines, uint8_t fg, uint8_t bg) {
+    std::size_t w = 0;
+    for (const auto &l : lines) w = std::max(w, cp_len(l));
+    for (std::size_t k = 0; k < lines.size(); k++)
+      sc.text(x, y + k, " " + pad_right(lines[k], w) + " ", fg, bg);
+  };
+
+  for (const Annotation &a : o.notes) {
+    uint8_t fg = S.note_fg, bg = S.note_bg;
+    if (a.color >= 0) { bg = static_cast<uint8_t>(a.color); fg = contrast_on(bg); }
+    std::vector<std::string> lines = wrap_text(a.text, 24);
+    std::size_t tw = 0;
+    for (const auto &l : lines) tw = std::max(tw, cp_len(l));
+    Box b;
+    b.w = static_cast<double>(tw) + 2;
+    b.h = static_cast<double>(lines.size());
+
+    if (a.kind == Annotation::HLINE && !pie) {
+      if (a.value < p.lo || a.value > p.hi) continue;
+      int y = static_cast<int>(std::lround(p.Y(a.value)));
+      uint8_t lc = a.color >= 0 ? static_cast<uint8_t>(a.color) : S.note_bg;
+      if (!p.fine) y = std::min(y, p.ph - 1);
+      for (int x = p.ox; x < p.ox + p.pw; x++)
+        if (p.fine ? (x / 6) % 2 == 0 : (x % 2 == 0 && !sf.touched(x, y))) {
+          sf.set(x, y, Ink(lc));
+          if (p.fine) sf.set(x, y - 1, Ink(lc));
+        }
+      if (!a.text.empty()) {
+        // either end, above or below the line: whichever covers least
+        double best = 1e18;
+        Box pick = b;
+        for (int k = 0; k < 4; k++) {
+          Box t = b;
+          t.x = (k & 1) ? p.cellx(p.ox) + 0.5 : p.cellx(p.ox + p.pw) - b.w;
+          t.y = (k & 2) ? p.celly(y) + 0.2 : p.celly(y) - b.h - (p.fine ? 0.15 : 0);
+          if (!p.fine) { t.x = std::floor(t.x); t.y = std::floor(t.y + 0.5); }
+          double score = k;
+          if (t.y < p.clip.y || t.y + t.h > p.celly(p.ph) + 0.01) score += 1000;
+          for (const Box &q : p.taken)
+            if (t.hits(q)) score += 50;
+          for (const Box &q : placed)
+            if (t.hits(q)) score += 200;
+          if (score < best) { best = score; pick = t; }
+        }
+        text_box(pick.x, pick.y, lines, fg, bg);
+        placed.push_back(pick);
+      }
+      continue;
+    }
+    if (a.kind == Annotation::VLINE && !pie) {
+      int row = row_of(a);
+      if (row < 0 || row >= static_cast<int>(p.slot_cx.size())) continue;
+      int x = static_cast<int>(p.slot_cx[static_cast<std::size_t>(row)]);
+      uint8_t lc = a.color >= 0 ? static_cast<uint8_t>(a.color) : S.note_bg;
+      for (int y = 0; y < p.ph; y++)
+        if (!p.fine || (y / 6) % 2 == 0) {
+          sf.set(x, y, Ink(lc));
+          if (p.fine) sf.set(x + 1, y, Ink(lc));
+        }
+      if (!a.text.empty()) {
+        b.x = p.cellx(x) + 0.5;
+        if (b.x + b.w > p.clip.right() + 1) b.x = p.cellx(x) - b.w - 0.5;
+        b.y = p.cells.y;
+        if (!p.fine) b.x = std::floor(b.x + 0.5);
+        text_box(b.x, b.y, lines, fg, bg);
+        placed.push_back(b);
+      }
+      continue;
+    }
+    if (a.kind == Annotation::NOTE) {
+      b.x = p.cells.x + a.fx * std::max(0.0, p.cells.w - b.w);
+      b.y = p.cells.y + a.fy * std::max(0.0, p.cells.h - b.h);
+      if (!p.fine) { b.x = std::floor(b.x + 0.5); b.y = std::floor(b.y + 0.5); }
+      text_box(b.x, b.y, lines, fg, bg);
+      placed.push_back(b);
+      continue;
+    }
+    if (a.kind != Annotation::POINT) continue;
+
+    int row = row_of(a), ser = series_of(a);
+    const Anchor *an = nullptr;
+    if (pie) {
+      an = p.find(-1, row);
+      if (!an && ser >= 0)
+        for (const auto &q : p.anchors)
+          if (q.s == ser) an = &q;
+      if (!an && row >= 0)
+        for (const auto &q : p.anchors)
+          if (q.s == row) an = &q;
+    } else {
+      if (row < 0) continue;
+      an = p.find(ser, row);
+      if (!an) an = p.find(-1, row);
+    }
+    if (!an) continue;
+
+    // Try the corners around the point, nearest first; keep the one that
+    // stays in the panel and off the callouts already down.
+    double ax = p.cellx(an->p.x), ay = p.celly(an->p.y);
+    double best_score = 1e18;
+    Box best = b;
+    static const double OFF[12][2] = {{1, -1},     {-1, -1},    {0, -1},   {1, -2.2}, {-1, -2.2}, {0, -2.2},
+                                     {1.6, -1.6}, {-1.6, -1.6}, {1, 1},    {-1, 1},   {0, 1},     {1, -3.4}};
+    const bool sideways = !pie && std::isfinite(an->dir); // a horizontal bar: go off its end
+    for (int k = sideways ? -2 : 0; k < 12; k++) {
+      if (k < 0) {
+        Box t = b;
+        t.x = ax + (k == -2 ? 2.5 : 10);
+        t.y = ay - b.h / 2;
+        double score = (k + 2) * 0.5;
+        if (t.x + t.w > p.clip.right() + 1) score += 500;
+        for (const Box &q : placed)
+          if (t.hits(q)) score += 200;
+        for (const Box &q : p.taken)
+          if (t.hits(q)) score += 40;
+        if (score < best_score) { best_score = score; best = t; }
+        continue;
+      }
+      double ux = OFF[k][0], uy = OFF[k][1];
+      if (pie && std::isfinite(an->dir)) { // push away from the middle of the pie
+        double c = std::cos(an->dir), s = std::sin(an->dir);
+        if (ux * c + uy * s < -0.2) continue;
+      }
+      Box t = b;
+      t.x = ux > 0 ? ax + 2.5 * ux : (ux < 0 ? ax + 2.5 * ux - b.w : ax - b.w / 2);
+      t.y = uy > 0 ? ay + 1.4 * uy : ay + 2.0 * uy - b.h + 0.4;
+      double score = k * 0.5;
+      if (t.x < p.clip.x) { score += (p.clip.x - t.x) * 50; t.x = p.clip.x; }
+      if (t.x + t.w > p.clip.right() + 1) { score += (t.x + t.w - p.clip.right() - 1) * 50; t.x = p.clip.right() + 1 - t.w; }
+      if (t.y < p.clip.y) { score += (p.clip.y - t.y) * 50; t.y = p.clip.y; }
+      if (t.y + t.h > p.clip.bottom() + 1) { score += (t.y + t.h - p.clip.bottom() - 1) * 50; t.y = p.clip.bottom() + 1 - t.h; }
+      for (const Box &q : placed)
+        if (t.hits(q)) score += 200;
+      for (const Box &q : p.taken)
+        if (t.hits(q)) score += 40;
+      if (t.x <= ax && ax <= t.x + t.w && t.y <= ay && ay <= t.y + t.h) score += 500; // on top of its own point
+      if (score < best_score) { best_score = score; best = t; }
+    }
+    if (!p.fine) { best.x = std::floor(best.x + 0.5); best.y = std::floor(best.y + 0.5); }
+
+    // leader: from the point to the nearest spot on the box
+    double bx = std::max(best.x, std::min(ax, best.x + best.w)), by = std::max(best.y, std::min(ay, best.y + best.h));
+    double lx = (bx - p.cells.x) * p.sx, ly = (by - p.cells.y) * p.sy;
+    if (p.fine) sf.line(an->p.x + 1, an->p.y + 1, lx + 1, ly + 1, Ink(panel_color()));
+    sf.line(an->p.x, an->p.y, lx, ly, Ink(bg));
+    if (p.fine) {
+      sf.disc(an->p.x, an->p.y, 4, Ink(panel_color()));
+      sf.disc(an->p.x, an->p.y, 3, Ink(bg));
+    }
+    text_box(best.x, best.y, lines, fg, bg);
+    placed.push_back(best);
+  }
+}
+
+} // namespace
+
+// ---- entry point -------------------------------------------------------------
+
+void render_chart(Scene &sc, Rect r, Dataset &ds, const RenderOpts &o) {
   if (r.w < 8 || r.h < 4) return;
-  assign_colors(ds, o.palette);
-  std::string type = lower(o.type);
+  Canvas &cv = sc.cv;
+  assign_colors(ds, o);
+  std::string type = type_canonical(o.type);
 
   Rect inner = r;
   if (o.frame != "none") {
-    if (o.shadow) cv.shadow(r.x, r.y, r.w, r.h, S.shadow, G.blk[1]);
+    if (o.shadow && S.slide_bg != BG_NONE) cv.shadow(r.x, r.y, r.w, r.h);
+    if (S.slide_bg != BG_NONE) sc.panel(r, S.panel_bg);
     int st = BOX_DOUBLE;
     if (o.frame == "single") st = BOX_SINGLE;
     else if (o.frame == "heavy") st = BOX_HEAVY;
     else if (o.frame == "ascii") st = BOX_ASCII;
+    if (sc.mode().ascii) st = BOX_ASCII;
     cv.box(r.x, r.y, r.w, r.h, st, S.frame);
     inner = Rect{r.x + 2, r.y + 1, r.w - 4, r.h - 2};
+  } else if (S.slide_bg != BG_NONE) {
+    sc.panel(r, S.panel_bg);
+    inner = Rect{r.x + 1, r.y, r.w - 2, r.h};
   }
   if (inner.w < 4 || inner.h < 2) return;
 
   std::string title = o.title.empty() ? ds.title : o.title;
-  std::string bottom = ds.source;
-
   if (!title.empty()) {
     if (o.frame != "none" && static_cast<int>(cp_len(title)) + 8 < r.w) {
       cv.text_c(r.x + 2, r.y, r.w - 4, " " + title + " ", S.title);
@@ -973,52 +1381,59 @@ void render_chart(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o) {
     inner.y++;
     inner.h--;
   }
-  if (!bottom.empty() && o.frame != "none" && r.h > 3) {
-    // A long path gets truncated to fit; the file's own name is what matters,
-    // so fall back to the basename before giving up on naming it at all.
+  if (!o.source.empty() && o.frame != "none" && r.h > 3) {
+    std::string bottom = o.source;
     if (static_cast<int>(cp_len(bottom)) + 6 > r.w) {
       std::size_t s = bottom.find_last_of('/');
       if (s != std::string::npos && s + 1 < bottom.size()) bottom = bottom.substr(s + 1);
     }
-    std::string b = " " + bottom + " ";
-    cv.text_c(r.x + 2, r.bottom(), r.w - 4, b, S.subtitle);
+    cv.text_c(r.x + 2, r.bottom(), r.w - 4, " " + bottom + " ", S.grid == S.panel_bg ? S.dim : 8);
   }
   if (inner.w < 4 || inner.h < 2) return;
+  const Rect clip = inner;
 
-  bool pie_like = (type == "pie" || type == "pie3d" || type == "donut");
-  bool table_like = (type == "table");
-
-  if (table_like) {
-    draw_table(cv, inner, ds, o);
+  if (ds.empty()) {
+    cv.text_c(inner.x, inner.y + inner.h / 2, inner.w, "(no data)", S.subtitle);
+    return;
+  }
+  if (type == "table") {
+    draw_table(sc, inner, ds, o);
     return;
   }
 
-  // legend reservation for series charts
-  if (!pie_like && o.legend && ds.series.size() > 1) {
-    std::vector<LegEntry> leg = series_entries(ds, o);
-    int lw = legend_width(leg) + 2;
-    if (inner.w - lw >= 24 && static_cast<int>(leg.size()) <= inner.h) {
-      legend_draw(cv, Rect{inner.right() - lw + 1, inner.y, lw, inner.h}, leg, true);
-      inner.w -= lw + 1;
-    } else {
-      int rows = std::min<int>(3, static_cast<int>((leg.size() + 2) / 3));
-      Rect lr{inner.x, inner.bottom() - rows + 1, inner.w, rows};
-      legend_draw(cv, lr, leg, false);
-      inner.h -= rows + 1;
+  const bool pie_like = type == "pie" || type == "pie3d" || type == "donut";
+  std::size_t visible = 0;
+  for (const auto &s : ds.series)
+    if (!hidden_series(s)) visible++;
+  if (!pie_like && type != "hist" && o.legend && visible > 1) {
+    std::vector<LegEntry> leg;
+    for (std::size_t i = 0; i < ds.series.size(); i++)
+      if (!hidden_series(ds.series[i]))
+        leg.push_back({ds.series[i].name, ds.series[i].color, "", by_shade(o) ? static_cast<int>(i % 4) : 0});
+    int rows = std::min(std::max(1, inner.h / 4), legend_rows_needed(leg, inner.w));
+    if (inner.h - rows >= 6) {
+      legend_draw(sc, Rect{inner.x, inner.bottom() - rows + 1, inner.w, rows}, leg, false);
+      inner.h -= rows;
     }
   }
 
-  if (type == "bar" || type == "grouped" || type == "column") draw_bars(cv, inner, ds, o, false);
-  else if (type == "stacked") draw_bars(cv, inner, ds, o, true);
-  else if (type == "hbar") draw_hbars(cv, inner, ds, o, false);
-  else if (type == "line") draw_lines(cv, inner, ds, o, false);
-  else if (type == "area") draw_lines(cv, inner, ds, o, true);
-  else if (type == "scatter" || type == "xy") draw_scatter(cv, inner, ds, o);
-  else if (type == "hist") draw_hist(cv, inner, ds, o);
-  else if (type == "pie") draw_pie(cv, inner, ds, o, 0, 0.0);
-  else if (type == "pie3d") draw_pie(cv, inner, ds, o, std::max(1, o.depth), 0.0);
-  else if (type == "donut") draw_pie(cv, inner, ds, o, std::max(1, o.depth), 0.45);
-  else draw_bars(cv, inner, ds, o, false);
+  Plot p;
+  if (type == "stacked") p = draw_bars(sc, inner, clip, ds, o, true, false);
+  else if (type == "hbar") p = draw_hbars(sc, inner, clip, ds, o);
+  else if (type == "line") p = draw_lines(sc, inner, clip, ds, o, false);
+  else if (type == "area") p = draw_lines(sc, inner, clip, ds, o, true);
+  else if (type == "scatter") p = draw_scatter(sc, inner, clip, ds, o);
+  else if (type == "hist") p = draw_hist(sc, inner, clip, ds, o);
+  else if (type == "pie") p = draw_pie(sc, inner, clip, ds, o, false, 0.0);
+  else if (type == "pie3d") p = draw_pie(sc, inner, clip, ds, o, true, 0.0);
+  else if (type == "donut") p = draw_pie(sc, inner, clip, ds, o, o.depth > 0, 0.5);
+  else p = draw_bars(sc, inner, clip, ds, o, false, false);
+
+  if (!pie_like && p.sf && o.cur_index >= 0) {
+    const Anchor *a = p.find(o.cur_series, o.cur_index);
+    if (a) ring_cursor(p, a->p.x, a->p.y);
+  }
+  draw_notes(sc, p, ds, o, pie_like);
 }
 
 } // namespace ch

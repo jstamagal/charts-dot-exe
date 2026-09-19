@@ -2,45 +2,50 @@
 #pragma once
 
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "data.hpp"
+#include "spec.hpp"
+
 namespace ch {
+
+// A mistake on the command line, as opposed to bad input: exit status 2.
+struct UsageError : std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
 
 struct Args {
   std::vector<std::string> files;
   std::vector<std::string> types; // comma separated -t, may hold several
-  std::string palette = "dos";
-  std::string title, subtitle, xlabel, ylabel;
-  std::string frame; // empty = double
-  std::string out;
-  std::string example, label_key;
+  std::string out, png, png_dir, launcher;
+  std::string example;
+  std::string gfx = "auto", theme;
 
-  int width = 0, height = 0;
-  int watch_ms = 1000;
-  int explode = -2, depth = 2, bins = 10, prec = -1;
-  int label_col = -1, series_col = -1;
+  // Chart settings typed by hand.  They beat the deck, which beats the data
+  // file, which beats the defaults.
+  ChartSpec cli;
+  LoadOpts load;
 
-  double lo = 0, hi = 0;
-  bool has_lo = false, has_hi = false;
+  int width = 0, height = 0; // cells
+  int scale = 0;             // pixel backends and --png: 0 = choose
+  int slide = 0;             // 1-based; 0 = not given
 
-  char delim = 0;
-
-  bool interactive = false;
-  bool legend = true, values = false, grid = true;
-  bool color = true, ascii = false, shadow = true;
-  bool xy = false, transpose = false, tile = false, watch = false;
-  bool describe = false, no_header = false;
-  bool list_types = false, list_palettes = false;
-  bool help = false, version = false;
-  bool color_forced = false;
+  bool show = false, print = false, check = false, json = false, describe = false;
+  bool tile = false, ascii = false, verbose = false;
+  bool color = true, color_forced = false;
+  bool list_types = false, list_palettes = false, list_themes = false;
+  bool help = false, version = false, schema = false;
 };
 
 Args parse_args(int argc, char **argv);
 void print_help(FILE *f);
 void print_types(FILE *f);
 void print_palettes(FILE *f);
+void print_themes(FILE *f);
 void print_version(FILE *f);
 void print_example(FILE *f, const std::string &what);
+void print_schema(FILE *f);
 
 } // namespace ch

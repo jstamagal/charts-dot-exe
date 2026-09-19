@@ -206,7 +206,19 @@ std::string fmt_val(double v, int prec) {
     if (neg) s.erase(s.begin());
     return (neg ? "-" : "") + group_digits(s);
   }
-  return commafy(v, 2);
+  // up to two decimals (three below 1), without a tail of zeros: 6.9, not 6.90
+  std::string s = commafy(v, std::fabs(v) < 1 ? 3 : 2);
+  while (!s.empty() && s.back() == '0') s.pop_back();
+  if (!s.empty() && s.back() == '.') s.pop_back();
+  return s.empty() || s == "-" ? "0" : s;
+}
+
+std::string fmt_raw(double v) {
+  if (!std::isfinite(v)) return "";
+  char b[40];
+  if (v == std::floor(v) && std::fabs(v) < 1e15) std::snprintf(b, sizeof b, "%.0f", v);
+  else std::snprintf(b, sizeof b, "%.12g", v);
+  return b;
 }
 
 std::string fmt_axis(double v) {
@@ -266,23 +278,36 @@ std::string u32_to_utf8(char32_t c) {
   return o;
 }
 
+// Strict: a byte that does not belong to a well-formed sequence becomes
+// U+FFFD, so broken input can never come back out as broken output.
 std::vector<char32_t> utf8_decode(const std::string &s) {
   std::vector<char32_t> out;
   std::size_t i = 0;
   const std::size_t n = s.size();
   while (i < n) {
     unsigned char c = static_cast<unsigned char>(s[i]);
-    char32_t cp = c;
-    int extra = 0;
-    if (c >= 0xF0) { cp = c & 0x07; extra = 3; }
-    else if (c >= 0xE0) { cp = c & 0x0F; extra = 2; }
-    else if (c >= 0xC0) { cp = c & 0x1F; extra = 1; }
-    i++;
-    for (int k = 0; k < extra && i < n; k++, i++) {
-      cp = (cp << 6) | (static_cast<unsigned char>(s[i]) & 0x3F);
-    }
+    if (c < 0x80) { out.push_back(c); i++; continue; }
+    int extra = c >= 0xF0 && c <= 0xF4 ? 3 : (c >= 0xE0 && c < 0xF0 ? 2 : (c >= 0xC2 && c < 0xE0 ? 1 : -1));
+    char32_t cp = extra == 3 ? (c & 0x07) : (extra == 2 ? (c & 0x0F) : (c & 0x1F));
+    bool good = extra > 0 && i + static_cast<std::size_t>(extra) < n;
+    if (good)
+      for (int k = 1; k <= extra; k++) {
+        unsigned char t = static_cast<unsigned char>(s[i + static_cast<std::size_t>(k)]);
+        if ((t & 0xC0) != 0x80) { good = false; break; }
+        cp = (cp << 6) | (t & 0x3F);
+      }
+    static const char32_t MIN[4] = {0, 0x80, 0x800, 0x10000};
+    if (good && (cp < MIN[extra] || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))) good = false;
+    if (!good) { out.push_back(0xFFFD); i++; continue; }
     out.push_back(cp);
+    i += static_cast<std::size_t>(extra) + 1;
   }
+  return out;
+}
+
+std::string clean_utf8(const std::string &s) {
+  std::string out;
+  for (char32_t cp : utf8_decode(s)) out += u32_to_utf8(cp);
   return out;
 }
 

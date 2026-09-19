@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 
@@ -14,6 +15,14 @@ const Json *Json::get(const std::string &key) const {
   for (const auto &kv : o)
     if (kv.first == key) return &kv.second;
   return nullptr;
+}
+
+// An array whose every member is a number (or a null gap).
+bool is_number_array(const Json &j) {
+  if (!j.is_arr()) return false;
+  for (const auto &e : j.a)
+    if (!e.is_num() && !e.is_null()) return false;
+  return true;
 }
 
 namespace {
@@ -234,6 +243,20 @@ std::vector<double> numbers_of(const Json &j, bool &ok) {
   return out;
 }
 
+// Read loose top-level spec fields, next to the data, the way a quick script
+// tends to emit them.  A numeric value only counts as a setting for the few
+// fields that could never be a category name.
+void loose_spec(const Json &j, Dataset &ds) {
+  for (const auto &kv : j.o) {
+    if (kv.first == "chart" || !is_spec_key(kv.first)) continue;
+    if (kv.second.is_num() && !numeric_spec_ok(kv.first)) continue;
+    Json one;
+    one.t = Json::OBJ;
+    one.o.emplace_back(kv.first, kv.second);
+    spec_from_json(one, ds.spec);
+  }
+}
+
 void add_series_from_obj(Dataset &ds, const Json &obj) {
   for (const auto &kv : obj.o) {
     bool ok = false;
@@ -347,6 +370,130 @@ bool dataset_from_records(const Json &arr, Dataset &ds, const LoadOpts &o) {
 
 } // namespace
 
+Json *Json::find(const std::string &key) {
+  if (t != OBJ) return nullptr;
+  for (auto &kv : o)
+    if (kv.first == key) return &kv.second;
+  return nullptr;
+}
+
+Json &Json::set(const std::string &key, const Json &v) {
+  t = OBJ;
+  if (Json *old = find(key)) { *old = v; return *old; }
+  o.emplace_back(key, v);
+  return o.back().second;
+}
+
+void Json::erase(const std::string &key) {
+  for (std::size_t i = 0; i < o.size(); i++)
+    if (o[i].first == key) { o.erase(o.begin() + static_cast<long>(i)); return; }
+}
+
+namespace {
+
+void write_string(std::string &out, const std::string &raw) {
+  const std::string s = clean_utf8(raw); // what we write is always valid JSON
+  out += '"';
+  for (unsigned char c : s) {
+    switch (c) {
+    case '"': out += "\\\""; break;
+    case '\\': out += "\\\\"; break;
+    case '\n': out += "\\n"; break;
+    case '\r': out += "\\r"; break;
+    case '\t': out += "\\t"; break;
+    default:
+      if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); out += b; }
+      else out += static_cast<char>(c);
+    }
+  }
+  out += '"';
+}
+
+void write_number(std::string &out, double n) {
+  if (!std::isfinite(n)) { out += "null"; return; }
+  char b[40];
+  if (n == std::floor(n) && std::fabs(n) < 1e15) std::snprintf(b, sizeof b, "%.0f", n);
+  else std::snprintf(b, sizeof b, "%.12g", n);
+  out += b;
+}
+
+bool scalar(const Json &j) { return !j.is_arr() && !j.is_obj(); }
+
+void write_value(std::string &out, const Json &j, int depth) {
+  const std::string pad(static_cast<std::size_t>(depth + 1) * 2, ' ');
+  const std::string close(static_cast<std::size_t>(depth) * 2, ' ');
+  switch (j.t) {
+  case Json::NUL: out += "null"; break;
+  case Json::BOOL: out += j.b ? "true" : "false"; break;
+  case Json::NUM: write_number(out, j.n); break;
+  case Json::STR: write_string(out, j.s); break;
+  case Json::ARR: {
+    if (j.a.empty()) { out += "[]"; break; }
+    bool flat = true;
+    for (const auto &e : j.a)
+      if (!scalar(e)) flat = false;
+    if (flat) {
+      out += '[';
+      for (std::size_t i = 0; i < j.a.size(); i++) {
+        if (i) out += ", ";
+        write_value(out, j.a[i], depth + 1);
+      }
+      out += ']';
+      break;
+    }
+    out += "[\n";
+    for (std::size_t i = 0; i < j.a.size(); i++) {
+      out += pad;
+      write_value(out, j.a[i], depth + 1);
+      out += i + 1 < j.a.size() ? ",\n" : "\n";
+    }
+    out += close + "]";
+    break;
+  }
+  case Json::OBJ: {
+    if (j.o.empty()) { out += "{}"; break; }
+    // A small object of scalars (an annotation, a series header) reads better
+    // on one line.
+    bool flat = j.o.size() <= 6 && depth > 0;
+    std::size_t len = 0;
+    for (const auto &kv : j.o) {
+      if (!scalar(kv.second)) flat = false;
+      len += kv.first.size() + kv.second.s.size() + 8;
+    }
+    if (flat && len < 90) {
+      out += '{';
+      for (std::size_t i = 0; i < j.o.size(); i++) {
+        if (i) out += ", ";
+        write_string(out, j.o[i].first);
+        out += ": ";
+        write_value(out, j.o[i].second, depth + 1);
+      }
+      out += '}';
+      break;
+    }
+    out += "{\n";
+    for (std::size_t i = 0; i < j.o.size(); i++) {
+      out += pad;
+      write_string(out, j.o[i].first);
+      out += ": ";
+      write_value(out, j.o[i].second, depth + 1);
+      out += i + 1 < j.o.size() ? ",\n" : "\n";
+    }
+    out += close + "}";
+    break;
+  }
+  }
+}
+
+} // namespace
+
+std::string json_write(const Json &j) {
+  std::string out;
+  write_value(out, j, 0);
+  out += '\n';
+  return out;
+}
+
 Json parse_json(const std::string &text) {
   Parser p(text);
   p.skip();
@@ -359,9 +506,21 @@ Json parse_json(const std::string &text) {
   return v;
 }
 
-Dataset from_json(const std::string &text, const LoadOpts &o) {
-  Json j = parse_json(text);
+Dataset from_json(const std::string &text, const LoadOpts &o) { return from_json_value(parse_json(text), o); }
+
+Dataset from_json_value(const Json &j, const LoadOpts &o) {
   Dataset ds;
+
+  // ---- read the chart's description of itself first.
+  // It has to come before the data is shaped: a spec may say which column holds
+  // the labels, or that the file has no header, and that changes the parse.
+  if (j.is_obj()) {
+    if (const Json *block = j.get("chart")) spec_from_json(*block, ds.spec);
+    loose_spec(j, ds);
+  }
+
+  LoadOpts opts = o;
+  apply_spec_to_load(ds.spec, opts);
 
   auto set_title = [&](const Json &obj) {
     if (const Json *t = obj.get("title")) ds.title = t->str_or("");
@@ -369,7 +528,6 @@ Dataset from_json(const std::string &text, const LoadOpts &o) {
 
   if (j.is_obj()) {
     set_title(j);
-    const Json *labels = j.get("labels");
     const Json *xlab = j.get("x");
     const Json *rows = j.get("rows");
     if (!rows) rows = j.get("data");
@@ -377,9 +535,14 @@ Dataset from_json(const std::string &text, const LoadOpts &o) {
     const Json *series = j.get("series");
 
     if (rows && rows->is_arr()) {
-      if (labels && labels->is_arr()) labels_from(*labels, ds);
-      else dataset_from_records(*rows, ds, o);
-      if (ds.labels.empty() && labels && labels->is_arr()) labels_from(*labels, ds);
+      if (!rows->a.empty() && rows->a[0].is_arr()) {
+        Json copy = *rows; // rows with a header: the top-level array shape
+        Dataset inner = from_json_value(copy, opts);
+        ds.labels = inner.labels;
+        ds.series = inner.series;
+      } else {
+        dataset_from_records(*rows, ds, opts);
+      }
     } else if (series) {
       if (series->is_arr()) {
         if (!add_series_from_arr(ds, *series)) {
@@ -416,7 +579,7 @@ Dataset from_json(const std::string &text, const LoadOpts &o) {
     } else if (xlab && xlab->is_arr()) {
       // {x:[...], y:[...]} or {x:[..], <name>:[..]}
       for (const auto &kv : j.o) {
-        if (kv.first == "x" || kv.first == "title" || kv.first == "type") continue;
+        if (kv.first == "x" || !is_number_array(kv.second)) continue;
         bool ok = false;
         std::vector<double> v = numbers_of(kv.second, ok);
         if (!ok) continue;
@@ -430,16 +593,18 @@ Dataset from_json(const std::string &text, const LoadOpts &o) {
       // object of numbers -> one series, keys become labels
       std::vector<std::string> keys;
       for (const auto &kv : j.o) {
-        if (kv.second.is_num()) {
-          keys.push_back(kv.first);
-          ds.labels.push_back(kv.first);
-        }
+        if (!kv.second.is_num()) continue;
+        if (spec_took_key(kv.first, true)) continue; // already a setting
+        keys.push_back(kv.first);
+        ds.labels.push_back(kv.first);
       }
       if (!keys.empty()) {
         Series s;
         s.name = "value";
-        for (const auto &kv : j.o)
-          if (kv.second.is_num()) s.v.push_back(kv.second.n);
+        for (const auto &kv : j.o) {
+          if (!kv.second.is_num() || spec_took_key(kv.first, true)) continue;
+          s.v.push_back(kv.second.n);
+        }
         ds.series.push_back(s);
       }
     }
@@ -451,7 +616,7 @@ Dataset from_json(const std::string &text, const LoadOpts &o) {
       for (const auto &e : j.a) s.v.push_back(e.is_num() ? e.n : std::nan(""));
       ds.series.push_back(s);
     } else if (j.a[0].is_obj()) {
-      if (!dataset_from_records(j, ds, o)) throw std::runtime_error("json: no numeric fields in records");
+      if (!dataset_from_records(j, ds, opts)) throw std::runtime_error("json: no numeric fields in records");
     } else if (j.a[0].is_arr()) {
       bool allstr = true;
       for (const auto &c : j.a[0].a)
@@ -489,7 +654,25 @@ Dataset from_json(const std::string &text, const LoadOpts &o) {
     throw std::runtime_error("json: top level must be an object or array");
   }
 
+  // "labels" beside the data always names the rows, and a numeric "x" beside
+  // named series makes it an XY chart.
+  if (j.is_obj()) {
+    const Json *labels = j.get("labels");
+    if (labels && labels->is_arr() && !labels->a.empty()) labels_from(*labels, ds);
+    const Json *x = j.get("x");
+    if (x && is_number_array(*x) && j.get("series") && !ds.series.empty()) {
+      bool ok = false;
+      Series xs;
+      xs.name = "\x01x";
+      xs.v = numbers_of(*x, ok);
+      ds.series.insert(ds.series.begin(), xs);
+      if (const Json *xn = j.get("x_name")) ds.x_name = xn->str_or("x");
+    }
+    if (const Json *ln = j.get("label_name")) ds.label_name = ln->str_or("");
+  }
+
   if (ds.series.empty()) throw std::runtime_error("json: no numeric series found");
+  if (ds.spec.has_title && ds.title.empty()) ds.title = ds.spec.title;
   return ds;
 }
 

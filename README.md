@@ -1,138 +1,135 @@
 # charts-dot-exe
 
-ANSI charts for the Linux console. One binary, no dependencies, no runtime, no
-X, no Wayland. Point it at a CSV or JSON file and it draws a chart that fits the
-screen you are actually looking at — a real DRM/fbcon TTY, a framebuffer
-console, or any terminal.
+Business graphics for the Linux console, the way a VGA card drew them: 16
+colours, hard pixels, dithered shading, a bitmap font, double-line frames and
+drop shadows. An agent writes the deck; you page through it with the arrow
+keys, fix a number in the built-in sheet, pin a note on a bar.
 
-The look is deliberate: 16 colours, `█▓▒░` shading, extruded bars, ellipsoid
-pies with a swept side wall, double-line DOS frames and drop shadows. 1990 shop
-floor, not 2026 dashboard.
+![a slide: three big numbers, a stacked bar chart, commentary](docs/img/kpi.png)
 
-```
-$ charts revenue.csv -t pie3d -T 'Revenue mix'
-
-╔═══════════════════════════════ Revenue mix ════════════════════════════════╗
-║                                                 ██ revenue    2,388  62.9% ║
-║                                                 ▓▓ costs      1,408  37.1% ║
-║                        █                                                   ║
-║                 ▓▓▓▓▓▓▓████████                                            ║
-║               ▓▓▓▓▓▓▓▓▓██████████                                          ║
-║             ▓▓▓▓▓▓▓▓▓▓▓████████████                                        ║
-║            ▓▓▓▓▓▓▓▓▓▓▓▓█████████████                                       ║
-║           ▓▓▓▓▓▓▓▓▓▓▓▓▓██████████████                                      ║
-║           ▓▓▓▓▓▓▓▓▓▓▓▓▓██████████████                                      ║
-║          ▓▓▓▓▓▓▓▓▓▓▓▓▓▓███████████████                                     ║
-║           ▓▓▓▓▓▓▓▓▓▓▓████████████████                                      ║
-║          ▓▓▓▓▓▓▓▓▓▓██████████████████▓▓                                    ║
-║           ▓▓▓▓▓▓▓███████████████████▓▓▓                                    ║
-║           ▓▓▓▓▓████████████████████▓▓▓▓                                    ║
-║            ▓▓▓███████████████████▓▓▓▓▓                                     ║
-║             ▓▓▓▓███████████████▓▓▓▓▓▓▓                                     ║
-║               ▓▓▓▓▓▓▓▓▓█▓▓▓▓▓▓▓▓▓▓▓▓                                       ║
-║                 ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓                                        ║
-║                        ▓▓▓▓▓▓▓▓▓                                           ║
-║                         ▓                                                  ║
-╚═══════════════════════════ examples/revenue.csv ═══════════════════════════╝
-```
+One binary, no dependencies, no X, no Wayland. On a bare console it draws real
+pixels through `/dev/fb0`. Inside kitty, ghostty, wezterm or foot it sends the
+same picture through their graphics protocols. Anywhere else — ssh, tmux, a
+serial line — it falls back to half blocks, and `--ascii` below that.
 
 ## Build
 
 ```sh
-make              # ./charts
-make test         # CLI + interactive pty tests
-make install      # PREFIX=/usr/local by default
-make static       # fully static binary, if libstdc++.a is around
+make                          # ./charts   (C++17 compiler and make, nothing else)
+make test                     # 400-odd checks: CLI, fuzz, and the presenter on a pty
+make install PREFIX=~/.local  # or the default /usr/local
 ```
 
-Needs a C++17 compiler and make. Nothing else.
+The framebuffer needs you in the `video` group, which a desktop user normally is.
 
 ## Use
 
 ```sh
-charts data.csv                        # bar chart of every numeric column
-charts data.csv -t pie3d               # extruded pie
-charts data.json -t hbar --values      # horizontal bars with the numbers on them
-charts a.csv b.json c.tsv --tile -t bar,line,pie3d
-charts -i ./data                       # browse a directory, live
-charts -i data.csv                     # flip chart types with the keys
-cat data.csv | charts -t stacked       # from a pipe
-charts data.csv --watch                # redraw whenever the file changes
+charts deck.json                 # present: left/right to page, ? for every key
+charts -i sales.csv costs.csv    # data files straight into the presenter, a slide each
+charts sales.csv -t pie3d        # or just print one chart into the shell
+cat data.csv | charts -t line
+
+charts deck.json --check         # every problem, addressed by JSON path
+charts deck.json --png-dir out/  # render without a screen
 ```
 
-`charts -h` prints the whole option list. `charts --example json` prints a
-sample input file. `charts --describe data.csv` prints what it parsed, without
-drawing anything — useful when a chart looks wrong and you want to know whether
-the problem is the data or the renderer.
+`charts` is a tool for agents. `charts -h` is the complete manual, written for
+the agent building the deck (the skill in `skill/` is generated from it). The
+human runs a launcher: `charts deck.json --launcher q3` writes `~/.local/bin/q3`,
+which finds a terminal if it needs one and lets `charts` pick framebuffer,
+kitty, sixel or cells from wherever it lands. Everything about how a deck looks
+— theme colours, palettes, per-series colours, display scale — is in the deck
+file.
+
+## Decks
+
+A deck is one JSON file. Slides hold charts, text and big numbers, laid out
+automatically or on a 12×12 grid. Data is a CSV/TSV/JSON file beside the deck,
+or inline.
+
+```json
+{
+  "title": "Q3 review",
+  "slides": [
+    {"title": "Q3 review", "subtitle": "Revenue, costs and what comes next"},
+    {
+      "title": "Revenue grew every month but June",
+      "type": "bar", "values": true, "data": "revenue.csv",
+      "annotations": [
+        {"at": "Apr", "series": "revenue", "text": "spring launch"},
+        {"y": 150, "text": "target"}
+      ]
+    }
+  ]
+}
+```
+
+![the slide that JSON makes](docs/img/bars.png)
+
+The format is in [`docs/DECK.md`](docs/DECK.md). It is built for an agent to
+write: mistakes come back with their JSON path and a suggestion
+(`slides[1].type: unknown chart type "barr" -- did you mean "bar"?`), and
+`--png` lets the agent look at what it made. [`docs/AGENT.md`](docs/AGENT.md)
+is the working loop; `skill/` is the same thing packaged as an agent skill.
+
+The presenter watches the deck and its data files. When the agent rewrites
+them, the screen follows.
+
+## In the presenter
+
+```
+← → space pgup pgdn   slides             o   overview        12 enter   go to slide 12
+tab                   focus a block      n   speaker notes   y          next theme
+e   edit: the data sheet of a chart, or a text block
+a   annotate: callouts on points, target lines, marks
+t p v l g d x         chart type, palette, values, legend, grid, 3-D depth, explode
+i c N E X             add text, add a chart, new slide, edit title, delete block
+s   save              r   reload         q   quit
+```
+
+![the sheet, with the chart following every edit](docs/img/sheet.png)
+
+`e` on a chart opens its numbers. Type over a cell, `ins` for a row, `^A` for a
+series, `u` to undo; the chart above redraws as you go. `s` writes a CSV back
+to its file (comment and `#chart` lines kept) and inline data back into the
+deck. A file the loader had to simplify — a text column dropped, a transposed
+read — is never overwritten; the sheet says so.
 
 ## Chart types
 
-| type | what it is |
-| --- | --- |
-| `bar` | vertical bars, side by side per series, lit top and shaded right face |
-| `stacked` | bars stacked into a total per category, total printed on top |
-| `hbar` | horizontal bars, values at the bar end, names down the left |
-| `line` | connected markers: `* o + x # @ ^ ~` |
-| `area` | line with the space underneath shaded in |
-| `pie` | flat pie, percentages inside the fat slices |
-| `pie3d` | ellipsoid pie with an extruded side wall and a drop shadow |
-| `donut` | 3-D ring with a hole |
-| `scatter` | XY points (`--xy` takes the first numeric column as X) |
-| `hist` | histogram of the first series, `--bins N` buckets |
-| `table` | the raw numbers as a grid |
+`bar` `stacked` `hbar` `line` `area` `pie` `pie3d` `donut` `scatter` `hist`
+`table`. Bars, pies and donuts are extruded by default; `depth: 0` is flat.
 
-## Palettes
+![horizontal bars and a donut](docs/img/regions.png)
 
-`dos` (default), `ega`, `cga`, `ice`, `fire`, `green`, `amber`, `mono`.
-`mono` and `--no-color` make the fill glyph carry the series instead of the
-colour, so charts still read without colour — same trick the shaded prints used
-before everyone had a colour terminal.
-
-## Interactive keys
-
-```
-c C ← →    cycle chart type            e   pop a slice out of the pie
-1-9        jump to a type              v   value labels
-p P        cycle palette               g   grid lines
-t          table view                  d D deeper / flatter 3-D
-n N        next / previous file        r   reload now
-w          auto-reload on/off          ?   key list      q  quit
-```
-
-The screen redraws on `SIGWINCH`-ish resize polling, so dragging a window
-smaller re-fits the chart instead of wrapping it into porridge.
-
-## Console notes
-
-Nothing here assumes 256 colours or truecolor. Colours go out as the 16
-classic SGR codes, with the bright eight reached by `bold` — that is what a
-`TERM=linux` VT actually renders. `--ascii` swaps every box-drawing and block
-glyph for ASCII, for serial consoles, log capture and fonts that have no
-Unicode. Colour is dropped automatically when stdout is not a terminal, so
-redirecting to a file gives clean text.
-
-`$NO_COLOR` is honoured.
+Palettes: `dos` `ega` `cga` `ice` `fire` `green` `amber` `mono`. Themes: `dos`
+(blue desktop, black windows), `black` (no backdrop; the default when printing
+into a shell), `light`. Without colour, or on `mono`, series are told apart by
+dither instead.
 
 ## Documentation
 
-- [`docs/INPUT.md`](docs/INPUT.md) — every accepted CSV and JSON shape
-- [`docs/AGENT.md`](docs/AGENT.md) — driving charts from a script or an agent
+- [`docs/DECK.md`](docs/DECK.md) — the deck format
+- [`docs/INPUT.md`](docs/INPUT.md) — every accepted CSV and JSON data shape
+- [`docs/AGENT.md`](docs/AGENT.md) — driving charts from an agent or a script
 - [`docs/charts.1`](docs/charts.1) — man page
 
 ## Layout
 
 ```
-src/canvas.*    cell grid, box drawing, 16-colour ANSI dump
-src/charts.cpp  every chart renderer
-src/data.*      dataset model, CSV reader, axis maths
-src/json.*      small JSON reader
-src/cli.*       option parsing and help text
-src/tui.cpp     the interactive screen
-src/term.*      tty size, raw mode, key decoding
-src/main.cpp    one-shot, tiled and watch modes
-tests/          smoke.sh (CLI) and tui.py (pty)
+src/gfx.*       16-colour surfaces, dither inks, the bitmap font, indexed images
+src/png.cpp     PNG writer with its own deflate
+src/scene.*     one screenful: text cells + pixel surfaces -> cells or an image
+src/charts.cpp  every chart renderer, annotations
+src/deck.*      deck model, checking, saving        src/slide.cpp   slide layout and drawing
+src/display.*   framebuffer, kitty, sixel, cells    src/tui.cpp     the presenter
+src/data.* json.* spec.*   loaders, write-back, the chart spec
+tests/          smoke.sh (CLI, fuzz) and tui.py (pty)
+tools/          mkfont.py regenerates src/font_data.inc
 ```
 
 ## Licence
 
-MIT. See `LICENSE`.
+MIT. See `LICENSE`. The embedded font is [unscii](http://viznut.fi/unscii/) by
+Viznut, public domain.

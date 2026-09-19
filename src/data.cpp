@@ -187,9 +187,48 @@ std::string col_name(const std::vector<std::string> &hdr, std::size_t i) {
 
 } // namespace
 
+void apply_spec_to_load(const ChartSpec &s, LoadOpts &o) {
+  if (s.has_delim && !o.has_delim) { o.delim = s.delim; o.has_delim = true; }
+  if (s.has_transpose && !o.has_transpose) { o.transpose = s.transpose; o.has_transpose = true; }
+  if (s.has_xy && !o.has_xy) { o.xy = s.xy; o.has_xy = true; }
+  if (s.has_no_header && !o.has_no_header) { o.no_header = s.no_header; o.has_no_header = true; }
+  if (s.has_label_col && !o.has_label_col) { o.label_col = s.label_col; o.has_label_col = true; }
+  if (s.has_series_col && !o.has_series_col) { o.series_col = s.series_col; o.has_series_col = true; }
+  if (s.has_label_key && !o.has_label_key) { o.label_key = s.label_key; o.has_label_key = true; }
+}
+
+// Pull "#chart ..." / "#charts ..." lines out of a CSV before the table is
+// parsed, so a directive can shape how the columns are read.
+static ChartSpec scan_directives(const std::string &text, std::string &err) {
+  ChartSpec spec;
+  std::istringstream in(text);
+  std::string l;
+  int n = 0;
+  while (std::getline(in, l)) {
+    std::string t = trim(l);
+    if (!t.empty() && t[0] != '#') {
+      n++;
+      // Directives belong in the header. Do not go hunting through the body:
+      // a '#' inside the data is a comment, not a place for settings.
+      if (n > 40) break;
+    }
+    if (t.empty() || t[0] != '#') continue;
+    std::string e;
+    if (spec_from_directive(t, spec, e) && !e.empty() && err.empty()) err = e;
+  }
+  return spec;
+}
+
 Dataset load_csv(const std::string &text, const LoadOpts &o) {
   Dataset ds;
   if (text.empty()) throw std::runtime_error("empty input");
+
+  std::string spec_err;
+  ChartSpec file_spec = scan_directives(text, spec_err);
+  if (!spec_err.empty()) throw std::runtime_error("bad #chart line: " + spec_err);
+
+  LoadOpts opts = o;
+  apply_spec_to_load(file_spec, opts);
 
   // first meaningful line, for delimiter sniffing
   std::string first_line;
@@ -200,10 +239,10 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
       if (!trim(l).empty() && l[0] != '#') { first_line = l; break; }
     }
   }
-  char delim = o.delim ? o.delim : sniff_delim(first_line);
+  char delim = opts.delim ? opts.delim : sniff_delim(first_line);
 
   Table t = parse_delimited(text, delim);
-  if (o.transpose) transpose_table(t);
+  if (opts.transpose) transpose_table(t);
   if (t.rows.empty()) throw std::runtime_error("no rows found");
 
   std::size_t cols = 0;
@@ -213,7 +252,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
   for (auto &r : t.rows) r.resize(cols, std::string());
 
   // header?
-  bool header = !o.no_header;
+  bool header = !opts.no_header;
   {
     auto &r0 = t.rows[0];
     bool any_text = false, any_num = false;
@@ -222,7 +261,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
       if (parse_num(f, d)) any_num = true;
       else if (!trim(f).empty()) any_text = true;
     }
-    if (o.no_header) header = false;
+    if (opts.no_header) header = false;
     else if (any_text && !any_num) header = true;
     else if (any_text && any_num) header = true; // mixed: treat as header
     else header = false;                          // all numeric
@@ -256,7 +295,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
     if (nonblank[c] == 0) numeric[c] = false;
 
   // label column
-  int lc = o.label_col;
+  int lc = opts.label_col;
   if (lc < 0) {
     if (cols > 1 && !numeric[0]) lc = 0;
   }
@@ -264,7 +303,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
 
   // x column
   int xc = -1;
-  if (o.xy) {
+  if (opts.xy) {
     for (std::size_t c = 0; c < cols; c++) {
       if (static_cast<int>(c) == lc) continue;
       if (numeric[c]) { xc = static_cast<int>(c); break; }
@@ -282,12 +321,40 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
     }
   }
 
+  // A first column of rising numbers under a header (years, batch sizes,
+  // thread counts) is usually the category, but it is read as a series unless
+  // the file says otherwise.  Do not guess; say so.
+  if (lc < 0 && xc < 0 && header && cols >= 2 && numeric[0] && opts.series_col < 0) {
+    bool rising = ndata >= 2;
+    double prev = 0;
+    for (std::size_t r = first; r < t.rows.size() && rising; r++) {
+      double d = 0;
+      if (!parse_num(trim(t.rows[r][0]), d) || (r > first && d <= prev)) rising = false;
+      prev = d;
+    }
+    if (rising)
+      ds.hint = "the first column \"" + hdr[0] + "\" is numeric, so it was read as a series, not as the categories; "
+                "if it is the category add \"labels_col\": 1 (or \"xy\": true to use it as a numeric X axis)";
+  }
+
+  ds.had_header = header;
+  if (lc >= 0 && header) ds.label_name = hdr[static_cast<std::size_t>(lc)];
+  if (xc >= 0) ds.x_name = hdr[static_cast<std::size_t>(xc)];
+  auto lose = [&](const std::string &why) {
+    if (!ds.lossy) ds.lossy_why = why;
+    ds.lossy = true;
+  };
+  if (opts.transpose) lose("the file is read transposed");
+
   // series
   for (std::size_t c = 0; c < cols; c++) {
     int ci = static_cast<int>(c);
     if (ci == lc || ci == xc) continue;
-    if (!numeric[c]) continue;
-    if (o.series_col >= 0 && ci != o.series_col) continue;
+    if (!numeric[c]) {
+      if (nonblank[c] > 0) lose("column \"" + hdr[c] + "\" is not numeric and is not shown");
+      continue;
+    }
+    if (opts.series_col >= 0 && ci != opts.series_col) { lose("series_col hides the other columns"); continue; }
     Series s;
     s.name = hdr[c];
     s.v.reserve(ndata);
@@ -316,6 +383,8 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
 
   if (ds.series.empty())
     throw std::runtime_error("no numeric columns found (csv needs a header row and numbers)");
+  ds.spec = file_spec;
+  if (ds.spec.has_title && ds.title.empty()) ds.title = ds.spec.title;
   return ds;
 }
 
@@ -356,6 +425,145 @@ Dataset load_path(const std::string &path, const LoadOpts &o) {
   return load_text(text, path == "-" ? std::string("<stdin>") : path, o);
 }
 
+// ---- writing back ------------------------------------------------------------
+
+namespace {
+
+std::string csv_field(const std::string &f, char delim) {
+  bool quote = f.empty() ? false : (f.front() == ' ' || f.back() == ' ' || f[0] == '#');
+  for (char c : f)
+    if (c == delim || c == '"' || c == '\n' || c == '\r') quote = true;
+  if (!quote) return f;
+  std::string o = "\"";
+  for (char c : f) {
+    if (c == '"') o += '"';
+    o += c;
+  }
+  return o + "\"";
+}
+
+std::string num_text(double v) {
+  if (!std::isfinite(v)) return "";
+  char b[40];
+  if (v == std::floor(v) && std::fabs(v) < 1e15) std::snprintf(b, sizeof b, "%.0f", v);
+  else std::snprintf(b, sizeof b, "%.12g", v);
+  return b;
+}
+
+std::string read_file(const std::string &path) {
+  std::ifstream f(path, std::ios::binary);
+  if (!f) return "";
+  std::ostringstream ss;
+  ss << f.rdbuf();
+  return ss.str();
+}
+
+bool is_x(const Series &s) { return !s.name.empty() && s.name[0] == '\x01'; }
+
+} // namespace
+
+std::string dataset_to_csv(const Dataset &ds, const std::string &original, char delim) {
+  std::string out;
+  {
+    std::istringstream in(original);
+    std::string l;
+    while (std::getline(in, l)) {
+      if (!l.empty() && l.back() == '\r') l.pop_back();
+      std::string t = trim(l);
+      if (t.empty()) continue;
+      if (t[0] != '#') break;
+      out += l + "\n";
+    }
+  }
+  const std::string d(1, delim);
+  if (ds.had_header) {
+    std::string row = csv_field(ds.label_name.empty() ? "label" : ds.label_name, delim);
+    for (const auto &s : ds.series) row += d + csv_field(is_x(s) ? ds.x_name : s.name, delim);
+    out += row + "\n";
+  }
+  for (std::size_t i = 0; i < ds.nrows(); i++) {
+    std::string row = csv_field(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1), delim);
+    for (const auto &s : ds.series) row += d + (i < s.v.size() ? num_text(s.v[i]) : "");
+    out += row + "\n";
+  }
+  return out;
+}
+
+Json dataset_to_json(const Dataset &ds) {
+  Json j = Json::object();
+  if (!ds.label_name.empty()) j.set("label_name", Json::string(ds.label_name));
+  Json labels = Json::array();
+  for (std::size_t i = 0; i < ds.nrows(); i++)
+    labels.a.push_back(Json::string(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1)));
+  j.set("labels", labels);
+  Json series = Json::array();
+  for (const auto &s : ds.series) {
+    Json vals = Json::array();
+    for (double v : s.v) vals.a.push_back(std::isfinite(v) ? Json::number(v) : Json::null());
+    if (is_x(s)) {
+      j.set("x", vals);
+      if (ds.x_name != "x") j.set("x_name", Json::string(ds.x_name));
+      continue;
+    }
+    Json one = Json::object();
+    one.set("name", Json::string(s.name));
+    one.set("values", vals);
+    series.a.push_back(one);
+  }
+  j.set("series", series);
+  return j;
+}
+
+void save_dataset(const Dataset &ds, const std::string &path) {
+  if (path.empty() || path == "-" || path == "<stdin>") throw std::runtime_error("this data came from a pipe; there is no file to save to");
+  if (ds.lossy) throw std::runtime_error("not saving over " + path + ": " + ds.lossy_why);
+  std::string original = read_file(path);
+  std::string t = trim(original);
+  std::string out;
+  if (!t.empty() && (t[0] == '{' || t[0] == '[')) {
+    Json fresh = dataset_to_json(ds);
+    // Keep the file's own chart block and anything else it carried that is not
+    // the data itself.
+    Json old = parse_json(original);
+    Json j = Json::object();
+    if (old.is_obj()) {
+      static const char *data_keys[] = {"labels", "series", "rows", "data", "records", "x", "x_name", "label_name"};
+      for (const auto &kv : old.o) {
+        bool is_data = is_number_array(kv.second) || kv.second.is_num();
+        for (const char *k : data_keys)
+          if (kv.first == k) is_data = true;
+        if (kv.second.is_num() && spec_took_key(kv.first, true)) is_data = false;
+        if (!is_data) j.set(kv.first, kv.second);
+      }
+    }
+    for (const auto &kv : fresh.o) j.set(kv.first, kv.second);
+    out = json_write(j);
+  } else {
+    char delim = ds.spec.has_delim ? ds.spec.delim : 0;
+    if (!delim) {
+      std::istringstream in(original);
+      std::string l;
+      while (std::getline(in, l))
+        if (!trim(l).empty() && l[0] != '#') break;
+      delim = l.empty() ? ',' : sniff_delim(l);
+      if (path.size() > 4 && lower(path.substr(path.size() - 4)) == ".tsv" && l.empty()) delim = '\t';
+    }
+    out = dataset_to_csv(ds, original, delim);
+  }
+  // Write beside the file and rename over it, so a crash cannot leave half.
+  std::string tmp = path + ".charts-tmp";
+  {
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f) throw std::runtime_error("cannot write: " + path);
+    f << out;
+    if (!f.good()) throw std::runtime_error("write failed: " + path);
+  }
+  if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+    std::remove(tmp.c_str());
+    throw std::runtime_error("cannot replace: " + path);
+  }
+}
+
 std::string describe(const Dataset &ds) {
   std::ostringstream o;
   o << "source:  " << ds.source << "\n";
@@ -363,6 +571,47 @@ std::string describe(const Dataset &ds) {
   o << "rows:    " << ds.nrows() << "\n";
   o << "labels:  " << ds.labels.size() << "\n";
   o << "series:  " << ds.series.size() << "\n";
+
+  // What the file itself asked for, so it is obvious where a setting came from.
+  if (ds.spec.any()) {
+    std::string s;
+    auto add = [&](const std::string &k, const std::string &v) {
+      if (!s.empty()) s += ", ";
+      s += k + "=" + v;
+    };
+    if (ds.spec.has_type) add("type", ds.spec.type);
+    if (ds.spec.has_palette) add("palette", ds.spec.palette);
+    if (ds.spec.has_frame) add("frame", ds.spec.frame);
+    if (ds.spec.has_title) add("title", "\"" + ds.spec.title + "\"");
+    if (ds.spec.has_subtitle) add("subtitle", "\"" + ds.spec.subtitle + "\"");
+    if (ds.spec.has_xlabel) add("xlabel", "\"" + ds.spec.xlabel + "\"");
+    if (ds.spec.has_ylabel) add("ylabel", "\"" + ds.spec.ylabel + "\"");
+    if (ds.spec.has_legend) add("legend", ds.spec.legend ? "true" : "false");
+    if (ds.spec.has_values) add("values", ds.spec.values ? "true" : "false");
+    if (ds.spec.has_grid) add("grid", ds.spec.grid ? "true" : "false");
+    if (ds.spec.has_shadow) add("shadow", ds.spec.shadow ? "true" : "false");
+    if (ds.spec.has_color) add("color", ds.spec.color ? "true" : "false");
+    if (ds.spec.has_ascii) add("ascii", ds.spec.ascii ? "true" : "false");
+    if (ds.spec.has_depth) add("depth", std::to_string(ds.spec.depth));
+    if (ds.spec.has_bins) add("bins", std::to_string(ds.spec.bins));
+    if (ds.spec.has_prec) add("prec", std::to_string(ds.spec.prec));
+    if (ds.spec.has_explode) add("explode", std::to_string(ds.spec.explode));
+    if (ds.spec.has_lo) add("min", fmt_val(ds.spec.lo));
+    if (ds.spec.has_hi) add("max", fmt_val(ds.spec.hi));
+    if (ds.spec.has_width) add("width", std::to_string(ds.spec.width));
+    if (ds.spec.has_height) add("height", std::to_string(ds.spec.height));
+    if (ds.spec.has_xy) add("xy", ds.spec.xy ? "true" : "false");
+    if (ds.spec.has_transpose) add("transpose", ds.spec.transpose ? "true" : "false");
+    if (ds.spec.has_no_header) add("no_header", ds.spec.no_header ? "true" : "false");
+    if (ds.spec.has_label_col) add("labels_col", std::to_string(ds.spec.label_col + 1));
+    if (ds.spec.has_series_col) add("series_col", std::to_string(ds.spec.series_col + 1));
+    if (ds.spec.has_label_key) add("label_key", "\"" + ds.spec.label_key + "\"");
+    if (ds.spec.has_delim) add("delim", ds.spec.delim == '\t' ? "tab" : std::string(1, ds.spec.delim));
+    o << "chart:   " << s << "\n";
+  } else {
+    o << "chart:   (none in the file; a bare 'charts file' uses the defaults)\n";
+  }
+
   for (std::size_t i = 0; i < ds.series.size(); i++) {
     const Series &s = ds.series[i];
     double lo = 0, hi = 0;

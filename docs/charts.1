@@ -1,271 +1,150 @@
-.TH CHARTS 1 "2026-09-17" "charts 1.0.0" "User Commands"
+.TH CHARTS 1 "2026" "charts 2.0" "User Commands"
 .SH NAME
-charts \- ANSI charts for the Linux console
+charts \- DOS-style charts and slide decks for the Linux console
 .SH SYNOPSIS
 .B charts
-.RI [ FILE | \- ]
-.RI [ options ]
+.I DECK.json
 .br
 .B charts
-.IR a.csv " " b.json " " c.tsv " " \-\-tile " " \-t " " bar,line,pie3d
+.RI [ options ] " FILE" ...
 .br
 .B charts
-.B \-i
-.IR dir | file ...
+.I DECK.json
+.BR \-\-check " | " \-\-png
+.IR FILE " | "
+.B \-\-png\-dir
+.IR DIR " | " \fB\-\-print\fR
 .SH DESCRIPTION
 .B charts
-reads CSV, TSV or JSON and draws a chart that fits the screen.
-It uses the 16 ANSI console colours with block shading, extruded bars and
-ellipsoid pies, double-line frames and drop shadows.
-There are no dependencies, no configuration and no runtime: one binary, one
-screenful of output.
+draws bar, line, area, pie, scatter and histogram charts in sixteen colours
+with dithered shading, and presents decks of them: slides of charts, text and
+big numbers, paged through with the arrow keys.
 .PP
-Text columns become category labels; numeric columns become series.
-Directories expand to the data files inside them.
+A deck is a JSON file with a "slides" array, usually written by an agent or a
+script.  Data files are CSV, TSV or JSON.  Given a deck on a terminal,
+.B charts
+opens the presenter.  Given data files it prints one chart each, or with
+.B \-i
+opens them in the presenter, a slide each.
+.PP
+The presenter draws real pixels on the Linux console through the framebuffer
+.RI ( /dev/fb0 ,
+which needs membership of the
+.I video
+group), uses the kitty graphics protocol or sixel inside terminals that have
+them, and falls back to half-block characters anywhere else.  The picture is
+the same in each.
 .SH OPTIONS
-.SS Output
+.SS What to do
 .TP
-.BI \-t,\ \-\-type " NAME"
-Chart type. A comma-separated list with
-.B \-\-tile
-draws several charts at once.
-Types:
-.BR bar ", " stacked ", " hbar ", " line ", " area ", " pie ", " pie3d ", " donut ", " scatter ", " hist ", " table .
-Default
-.BR bar .
+.BR \-i ", " \-\-show
+open data files in the presenter
 .TP
-.BI \-T,\ \-\-title " TEXT"
-Title, drawn into the top border.
+.B \-\-print
+print to standard output as text (the default for data files)
 .TP
-.BI \-\-subtitle " TEXT"
-Second centred line under the title.
+.BI \-\-png " FILE"
+write one slide as a PNG; see
+.B \-\-slide
 .TP
-.BI \-\-xlabel " TEXT"
-Label under the x axis.
+.BI \-\-png\-dir " DIR"
+write every slide as DIR/slide\-NN.png
 .TP
-.BI \-\-ylabel " TEXT"
-Label up the left side, one character per row.
-.TP
-.BI \-p,\ \-\-palette " NAME"
-Colour set:
-.BR dos " (default), " ega ", " cga ", " ice ", " fire ", " green ", " amber ", " mono .
-.TP
-.BI \-w,\ \-\-width " N"
-Force the width in cells. Defaults to the terminal width.
-.TP
-.BI \-H,\ \-\-height " N"
-Force the height in rows.
-.TP
-.BI \-\-frame " STYLE"
-.BR double " (default), " single ", " heavy ", " ascii " or " none .
-.TP
-.B \-\-no\-shadow
-No drop shadow behind the frame.
-.TP
-.B \-\-tile
-Lay several charts out on one screen in a grid.
-.TP
-.BR \-\-legend ", " \-\-no\-legend
-Series legend on or off.
-.TP
-.BR \-\-values ", " \-\-no\-values
-Numbers drawn on the bars.
-.TP
-.BR \-\-grid ", " \-\-no\-grid
-Horizontal grid lines.
-.TP
-.BR \-\-color ", " \-\-no\-color
-Force colour on or off. Colour is dropped when stdout is not a terminal.
-.B NO_COLOR
-is honoured.
-.TP
-.B \-\-ascii
-ASCII glyphs only, no box drawing or block characters.
-.TP
-.BI \-o,\ \-\-out " FILE"
-Write to FILE instead of stdout.
-.SS Data
-.TP
-.B \-\-xy
-The first numeric column is the X axis.
-.TP
-.B \-\-transpose
-Swap rows and columns before anything else.
-.TP
-.BI \-\-delim " C"
-Force the delimiter. Accepts
-.BR tab ", " comma ", " semi ", " pipe
-or a single character.
-.TP
-.B \-\-no\-header
-Treat the first row as data.
-.TP
-.BI \-\-labels\-col " N"
-Use column N (1-based) for labels.
-.TP
-.BI \-\-series\-col " N"
-Keep only numeric column N as a series.
-.TP
-.BI \-\-label\-key " K"
-JSON: the record field that supplies labels.
-.TP
-.BI \-\-min " V"
-.TP
-.BI \-\-max " V"
-Pin the value axis.
-.TP
-.BI \-\-explode " [N]"
-Pop slice N out of the pie. Bare
-.B \-\-explode
-pops the biggest slice.
-.TP
-.BI \-\-depth " N"
-Rows of 3-D extrusion. Default 2, maximum 6.
-.TP
-.BI \-\-bins " N"
-Histogram buckets. Default 10.
-.TP
-.BI \-\-prec " N"
-Fixed number of decimals in value labels.
-.SS Running
-.TP
-.BR \-i,\ \-\-interactive
-Full-screen interactive mode. Keys:
-.BR c / C
-or the arrows change chart type,
-.B 1\-9
-jump to a type,
-.B p / P
-change palette,
-.B t
-shows the table,
-.B e
-pops a pie slice,
-.B v
-value labels,
-.B g
-grid,
-.B d / D
-deeper or flatter 3-D,
-.B n / N
-next or previous file,
-.B r
-reload,
-.B w
-toggles auto-reload,
-.B ?
-shows the keys and
-.B q
-quits.
-.TP
-.B \-\-watch
-Redraw whenever a source file changes. Needs a terminal.
-.TP
-.B \-\-watch\-ms " N"
-Poll interval for
-.BR \-\-watch .
+.BR \-\-check " [" \-\-json ]
+validate a deck; every problem is reported with its JSON path
 .TP
 .B \-\-describe
-Print what was parsed out of the file, then exit.
+print what was parsed: a deck's outline, or a data file's columns
 .TP
-.BI \-\-example " [csv|json]"
-Print a sample input file.
+.BI \-\-slide " N"
+the slide (from 1) to print, render or open on
 .TP
-.BR \-\-list\-types ", " \-\-list\-palettes ", " \-\-version ", " \-h
-Informational output.
-.SH INPUT
-.SS CSV and TSV
-The delimiter is sniffed from the first non-blank line among
-.BR , " " ; ", TAB and " | .
-If the first row contains any text it is a header; if every cell is a number the
-file has no header and columns are named
-.BR col1 ,
-.BR col2 ,
-etc.
-A non-numeric first column becomes the labels, every other numeric column
-becomes a series.
-Blank lines are skipped and a line beginning with
-.B #
-is a comment.
-Quoted fields may contain the delimiter; a doubled quote inside a quoted field
-is one quote.
-Numbers may carry thousands separators or a trailing percent sign; a field that
-does not parse becomes a gap in that series.
-.SS JSON
-Accepted shapes:
-.IP \(bu 2
-an array of records, labels taken from a text field named
-.BR label ", " name ", " key ", " category ", " date ", " time ", " month " or " year ;
-.IP \(bu 2
-an object with
-.B labels
+.BI \-o " FILE"
+write \-\-print output to FILE
+.TP
+.BR \-\-schema ", " \-\-example " [csv|json|deck], " \-\-list\-types ", " \-\-list\-palettes ", " \-\-list\-themes
+reference output
+.SS How it looks
+.TP
+.BI \-t " NAME" "\fR[,\fINAME\fR]"
+chart type: bar stacked hbar line area pie pie3d donut scatter hist table
+.TP
+.BI \-T " TEXT" "\fR, \fB\-\-subtitle\fR, \fB\-\-xlabel\fR, \fB\-\-ylabel\fR"
+titles and axis labels
+.TP
+.BI \-p " NAME"
+series palette: dos ega cga ice fire green amber mono
+.TP
+.BI \-\-theme " NAME"
+dos, black or light
+.TP
+.BR \-\-values ", " \-\-legend ", " \-\-grid ", " \-\-shadow
 and
-.BR series ,
-each series carrying
-.B name
-and
-.B values ;
-.IP \(bu 2
-an object of numbers, one series with the keys as labels;
-.IP \(bu 2
-a flat array of numbers;
-.IP \(bu 2
-an array of arrays with a text first row;
-.IP \(bu 2
-an object with parallel
-.B x
-and
-.B y
-arrays.
+.B \-\-no\-...
+to turn each off
+.TP
+.BI \-\-frame " STYLE"
+double, single, heavy or none
+.TP
+.BI \-\-depth " N"
+3-D extrusion, 0 to 6; 0 is flat
+.TP
+.BR \-\-explode " [" \fIN\fR ]
+pop pie slice N out; bare, the biggest
+.TP
+.BI \-\-min " V" "\fR, \fB\-\-max \fIV\fR, \fB\-\-prec \fIN\fR, \fB\-\-bins \fIN\fR"
+axis limits, decimals, histogram buckets
+.TP
+.BI \-w " N" "\fR, \fB\-H \fIN\fR, \fB\-\-size \fICOLSxROWS\fR"
+size in character cells; \-\-png defaults to 120x33
+.TP
+.BI \-\-scale " K"
+pixel multiplier for \-\-png and the pixel displays
+.TP
+.BI \-\-gfx " MODE"
+auto, fb, kitty, sixel, cells or ascii
+.TP
+.BR \-\-ascii ", " \-\-color ", " \-\-no\-color ", " \-\-tile
+plain ASCII; colour; all files on one slide
+.SS How the data is read
+.BR \-\-xy ", " \-\-transpose ", " \-\-no\-header ", "
+.BI \-\-delim " C" \fR,
+.BI \-\-labels\-col " N" \fR,
+.BI \-\-series\-col " N" \fR,
+.BI \-\-label\-key " K"
+.SH KEYS
+.TS
+l l.
+left right space pgup pgdn	previous / next slide
+home end, digits enter	first / last / go to a slide
+o  n  ?	overview, speaker notes, key list
+tab	focus the next block
+e	edit the focused chart's data, or a text block
+a	annotate the chart
+t p v l g d x	type, palette, values, legend, grid, depth, explode
+i c N E X	add text, add chart, new slide, edit title, delete block
+y  s  r  q	theme, save, reload, quit
+.TE
 .PP
-.B null
-and missing fields become gaps.
+In the sheet: arrows move, typing replaces a cell, enter edits, ins adds a row,
+^D deletes one, ^A adds a series, ^X deletes one, u undoes, s saves, esc
+returns.  In annotate mode: left/right pick the point, up/down the series,
+enter writes a note, h a line across, v a mark, del removes.
 .SH EXIT STATUS
-.TP
-.B 0
-The chart was drawn.
-.TP
-.B 1
-Bad data, bad option or unreadable file. One line on stderr beginning
-.BR "charts: " .
-.TP
-.B 2
-No input, or
-.B \-i
-or
-.B \-\-watch
-without a terminal.
+0 success; 1 the input has errors; 2 the command line is wrong.
 .SH ENVIRONMENT
 .TP
+.B CHARTS_GFX
+as \-\-gfx
+.TP
+.BR CHARTS_FB ", " FRAMEBUFFER
+framebuffer device, default /dev/fb0
+.TP
+.B CHARTS_FB_GEOM
+WxHxBPP: treat CHARTS_FB as a plain file of that shape
+.TP
 .B NO_COLOR
-When set and non-empty, colour is off.
-.TP
-.BR COLUMNS ", " LINES
-Used for the chart size when the terminal size cannot be read.
-.TP
-.B TERM
-Not consulted for capability; the classic 16 SGR colours are used always.
-.SH EXAMPLES
-.TP
-.B charts revenue.csv -t pie3d -T 'Revenue mix'
-An extruded pie with the file named in the frame.
-.TP
-.B charts quarterly.csv -t stacked --values --ylabel units
-Stacked bars with the totals printed on top.
-.TP
-.B charts disk.json -t hbar --palette ice
-Horizontal bars in a cool palette.
-.TP
-.B charts a.csv b.csv c.csv d.csv --tile -t bar,line,pie3d,stacked
-Four charts, one screen, four types.
-.TP
-.B charts -i examples/
-Browse a directory of data interactively.
-.TP
-.B cat data.csv | charts -t bar
-From a pipe.
+turn colour off
 .SH SEE ALSO
-.BR gnuplot (1),
-.BR asciigraph (1)
-.SH AUTHOR
-Written for the Linux console by John Stamagal.
+docs/DECK.md, docs/INPUT.md, docs/AGENT.md in the source tree;
+.B charts \-\-schema

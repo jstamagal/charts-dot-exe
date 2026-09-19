@@ -24,6 +24,7 @@ std::string trunc_to(std::string s, std::size_t n);
 // ---- numbers ---------------------------------------------------------------
 bool parse_num(const std::string &s, double &out);
 std::string fmt_val(double v, int prec = -1); // -1 = auto (commas / 2dp)
+std::string fmt_raw(double v);                // every digit, no commas: what a cell holds
 std::string fmt_axis(double v);               // compact: 1.5K, 2.4M, 3.1B
 std::string fmt_pct(double frac, int prec = 1);
 double nice_step(double raw);
@@ -31,6 +32,7 @@ double nice_step(double raw);
 // ---- unicode ---------------------------------------------------------------
 std::string u32_to_utf8(char32_t c);
 std::vector<char32_t> utf8_decode(const std::string &s);
+std::string clean_utf8(const std::string &s); // ill-formed bytes -> U+FFFD
 std::size_t cp_len(const std::string &s); // codepoint count (width-1 assumption)
 
 // ---- glyphs ----------------------------------------------------------------

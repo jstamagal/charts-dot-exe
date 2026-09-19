@@ -1,0 +1,47 @@
+{
+  "title": "Growth review - week 35",
+  "footer": "Growth review  -  week 35",
+  "slides": [
+    {"title": "Growth review", "subtitle": "Week 35  -  signups, revenue by region, latency"},
+    {
+      "title": "Signups are up 70% since week 27",
+      "subtitle": "weekly new accounts by channel",
+      "blocks": [
+        {"cols": [
+          {"stat": "1,153", "label": "signups, W35", "delta": "+8.5% w/w"},
+          {"stat": "70%", "label": "growth since W27", "delta": "+102 pt paid"},
+          {"stat": "12%", "label": "share from referral", "delta": "+5 pt"}
+        ], "at": [0, 0, 12, 3]},
+        {"type": "stacked", "data": "signups.csv", "ylabel": "accounts",
+         "annotations": [{"at": "W31", "series": "paid", "text": "paid campaign starts"}],
+         "at": [0, 3, 8, 9]},
+        {"text": ["# What happened", "", "- **Paid** tripled in W31 and held", "- **Referral** compounding: 38 to 140", "- Organic steady at +7% a week", "", "> Next: cap paid at 350/wk and watch whether referral keeps its slope."],
+         "at": [8, 3, 4, 9]}
+      ]
+    },
+    {
+      "title": "Three regions make 84% of revenue",
+      "layout": "cols",
+      "blocks": [
+        {"type": "hbar", "data": "regions.csv", "values": true, "xlabel": "USD k", "weight": 3},
+        {"type": "donut", "data": "regions.csv", "legend": true, "weight": 2}
+      ]
+    },
+    {
+      "title": "Latency climbs with load, p99 three times faster",
+      "type": "scatter", "data": "latency.csv",
+      "annotations": [{"y": 200, "text": "SLO 200 ms", "color": "red"}, {"note": [0.02, 0.02], "text": "40 samples, one per minute"}],
+      "notes": "p99 crosses the SLO at about 700 requests/s.\nCapacity plan assumes 900."
+    },
+    {
+      "title": "The same numbers, four ways",
+      "layout": "grid",
+      "blocks": [
+        {"type": "line", "data": "signups.csv", "title": "line"},
+        {"type": "area", "data": "signups.csv", "title": "area"},
+        {"type": "bar", "data": "signups.csv", "title": "bar", "depth": 1},
+        {"type": "table", "data": "signups.csv", "title": "table"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "title": "Q3 review",
+  "theme": "dos",
+  "footer": "ACME  -  Q3 review",
+  "slides": [
+    {"title": "Q3 review", "subtitle": "Revenue, costs and what comes next"},
+    {
+      "title": "Revenue grew every month but June",
+      "type": "bar", "values": true, "ylabel": "USD k",
+      "data": "revenue.csv",
+      "annotations": [
+        {"at": "Apr", "series": "revenue", "text": "spring launch"},
+        {"y": 150, "text": "target"}
+      ],
+      "notes": "June dipped because of the warehouse move."
+    },
+    {
+      "title": "Where the money went",
+      "layout": "cols",
+      "blocks": [
+        {"type": "pie3d", "explode": 0, "weight": 2,
+         "data": {"labels": ["payroll", "cloud", "rent", "other"], "series": [{"name": "USD k", "values": [620, 310, 140, 95]}]}},
+        {"rows": [
+          {"stat": "1,165", "label": "total spend, USD k", "delta": "+4% vs Q2"},
+          {"bullets": ["Payroll is **53%** of spend", "Cloud doubled since Q1", "Rent is fixed until 2027"]}
+        ]}
+      ]
+    }
+  ]
+}

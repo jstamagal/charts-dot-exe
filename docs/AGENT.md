@@ -1,121 +1,82 @@
-# Driving charts from a script or an agent
+# Driving charts from an agent
 
-`charts` is built to be the last step of a pipeline: something produces data,
-you ask for a chart, the chart appears on the console. No interpreter, no
-daemon, no config, no state between runs.
+The division of labour: **the agent builds the deck, the human presents it.**
+An agent has no screen and cannot take over the human's console, so it writes
+files, checks them, looks at PNGs of them, and hands over one command.
 
-## The short version
-
-```sh
-# 1. write the data
-printf 'month,revenue\nJan,120\nFeb,145\nMar,132\n' > /tmp/r.csv
-
-# 2. draw it
-charts /tmp/r.csv -t bar -T 'revenue by month'
-
-# 3. look at it
-```
-
-That is the whole loop. `/tmp` is fine for scratch data; a chart you care about
-belongs where the rest of your notes live.
-
-## Pin the size
-
-On a TTY the chart fills the screen. In a script or a log, pass `-w` and `-H`
-so the output is the same every time:
+## The loop
 
 ```sh
-charts data.csv -t bar -w 100 -H 30
+# 1. data: one tidy CSV per chart, a label column and numeric columns
+# 2. deck: write deck.json            (charts --schema, charts --example deck)
+charts deck.json --check              # 3. every problem, by JSON path; exit 1 on errors
+charts deck.json --png-dir /tmp/deck  # 4. render, then LOOK at the PNGs
+charts deck.json                      # 5. what the human runs
 ```
 
-Without a TTY and without `-w/-H` it falls back to 100x32 — a safe size for a
-pager or a paste. Lines are never longer than `-w` cells, so a chart survives
-being piped into anything.
+Step 4 is not optional. `--check` knows the deck is valid; only the picture
+shows a legend crowding a pie, a callout over the wrong bar, twelve labels
+where six fit. Each PNG is exactly the 120 × 33 cell screen of a 1080p
+console, a few kilobytes, and what the human will see pixel for pixel.
 
-## Check before you draw
+If the human already has the deck open, skip step 5: the presenter watches the
+deck and its data files and redraws when they change.
 
-`--describe` parses and prints what it found without rendering. Use it to check
-your assumption about the data instead of guessing from a picture:
+## Machine-readable checking
 
 ```sh
-charts --describe data.csv
+charts deck.json --check --json
 ```
 
-If a chart looks wrong, this tells you in one run whether the loader or the
-renderer is at fault.
+```json
+{"ok": false, "slides": 3, "errors": 1, "warnings": 1, "issues": [
+  {"level": "error", "path": "slides[1].type", "message": "unknown chart type \"barr\" (see --list-types) -- did you mean \"bar\"?"},
+  {"level": "warning", "path": "slides[1].annotations[0]", "message": "no category \"Arp\" in the data, so this is not drawn (did you mean \"Apr\"?)"}
+]}
+```
 
-## Iterate without re-running
+Exit status: `0` fine (warnings allowed), `1` the input has errors, `2` the
+command line is wrong. `--describe` prints the outline as parsed — slide
+titles, block kinds, rows × series — which is the quick way to confirm a data
+file was read the way you meant. On a data file it prints the columns.
 
-`--watch` redraws in place whenever a source file changes. Leave it running,
-rewrite the CSV, and the picture updates:
+## Without a deck
 
 ```sh
-charts /tmp/live.csv -t bar --watch
+charts data.csv -t line --print -w 100 -H 30 --no-color   # text, for a log or a reply
+charts data.csv -t pie3d --png chart.png                  # one chart as an image
+some-tool --json | charts -t hbar --values
 ```
 
-Press `q` or Ctrl-C to leave. Good for watching a build, a crawl, or a
-benchmark that appends rows.
+A data file can carry its own settings, so whoever produces it decides how it
+is drawn and `charts file` needs no flags:
 
-## Pick a type from the shape of the data
+```
+#chart: type=stacked, title="Weekly requests", ylabel=count, values
+day,ok,errors
+Mon,4821,37
+```
 
-| data shape | type |
+```json
+{"chart": {"type": "pie3d", "title": "Disk use", "explode": 2},
+ "rows": [{"label": "sda", "used_gb": 1860}, {"label": "sdb", "used_gb": 96}]}
+```
+
+Precedence is always command line > deck > data file > defaults.
+
+## What the human can do, so you need not
+
+In the presenter the human can edit the numbers (`e`), add callouts and target
+lines (`a`), add text and slides (`i`, `N`), change chart types (`t`) and save
+(`s`). Their edits land in the same files: CSVs are rewritten in place,
+annotations and text go into the deck JSON. Re-read the deck before editing it
+again.
+
+## Environment
+
+| | |
 | --- | --- |
-| categories, one number each | `bar` or `pie3d` |
-| categories, several numbers each | `stacked` or `bar` |
-| long category names | `hbar` |
-| a sequence over time | `line` or `area` |
-| two numbers per row, correlated | `scatter --xy` |
-| distribution of one column | `hist` |
-| a handful of whole/part figures | `pie3d` or `donut` |
-| just show me the numbers | `table` |
-
-Type names are checked against a fixed list; `charts --list-types` prints it,
-and an unknown name exits 1 with the name in the message.
-
-## Exit codes
-
-| code | meaning |
-| --- | --- |
-| 0 | drew the chart |
-| 1 | bad data, bad option, unreadable file — message on stderr |
-| 2 | no input, or `-i`/`--watch` without a terminal |
-
-Every failure prints one line to stderr beginning `charts: `. Nothing partial
-is ever written to stdout on failure, so `charts ... > out.txt` either gets a
-whole chart or an empty file.
-
-## Colour
-
-Colour is dropped automatically when stdout is not a terminal, and `--no-color`
-forces it off. That means:
-
-```sh
-charts data.csv -t bar > chart.txt        # plain text, no escapes
-charts data.csv -t bar --color | less -R  # keep the colour, page it
-```
-
-`$NO_COLOR` is honoured. `--ascii` replaces the box-drawing and block glyphs
-with ASCII, for serial consoles, `tee`d logs and terminal fonts without
-Unicode.
-
-## The interactive screen
-
-```sh
-charts -i ./data          # every .csv/.tsv/.json in a directory
-charts -i a.csv b.csv     # a fixed list
-```
-
-Keys are listed in `README.md` and in `-h`. Two are worth knowing for agent
-work: `r` reloads the current file now, and `w` toggles auto-reload, which is
-the same thing as `--watch` but already running.
-
-## Notes for whoever comes next
-
-- Output is deterministic for a given file, type, palette and size. Two runs
-  with the same arguments produce identical bytes.
-- A chart is drawn once, top to bottom, and stays put. `--watch` redraws when a
-  source file changes; `-i` redraws when a key is pressed or a file changes.
-- Files are opened read-only. There is no cache or config file to find
-  afterwards, so cleaning up means deleting the data you made and the binary.
-- The binary is self-contained: copy it to another box of the same architecture
-  and it runs.
+| `CHARTS_GFX` | `auto` `fb` `kitty` `sixel` `cells` `ascii`, same as `--gfx` |
+| `CHARTS_FB` | framebuffer device (default `/dev/fb0`, then `$FRAMEBUFFER`) |
+| `CHARTS_FB_GEOM` | `WxHxBPP`: treat `CHARTS_FB` as a plain file of that shape (tests, screenshots) |
+| `NO_COLOR` | honoured |

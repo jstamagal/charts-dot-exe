@@ -31,11 +31,16 @@ public:
   int w() const { return W_; }
   int h() const { return H_; }
 
-  void clear(uint8_t fg = 7);
+  void clear(uint8_t fg = 7, uint8_t bg = BG_NONE);
   bool inside(int x, int y) const { return x >= 0 && y >= 0 && x < W_ && y < H_; }
 
+  // The three-argument form keeps whatever background the cell already has,
+  // so text written over a panel stays on the panel.
   void put(int x, int y, char32_t ch, uint8_t fg);
   void put(int x, int y, char32_t ch, uint8_t fg, uint8_t bg);
+  const Cell &at(int x, int y) const { return c_[static_cast<std::size_t>(y) * W_ + x]; }
+  void fill_bg(int x, int y, int w, int h, uint8_t bg); // blanks the cells too
+  void text_bg(int x, int y, const std::string &s, uint8_t fg, uint8_t bg);
   void text(int x, int y, const std::string &s, uint8_t fg);
   void text_c(int x, int y, int w, const std::string &s, uint8_t fg); // centred in w
   void text_r(int x, int y, int w, const std::string &s, uint8_t fg); // right aligned in w
@@ -43,10 +48,14 @@ public:
   void hline(int x, int y, int len, char32_t ch, uint8_t fg);
   void vline(int x, int y, int len, char32_t ch, uint8_t fg);
   void box(int x, int y, int w, int h, int style, uint8_t fg);
-  void shadow(int x, int y, int w, int h, uint8_t fg, char32_t ch);
-  void vtext(int x, int y, const std::string &s, uint8_t fg); // reads upward from (x,y)
+  // DOS drop shadow: the cells right of and below the box go dark, keeping
+  // whatever was written there.
+  void shadow(int x, int y, int w, int h);
+  void vtext(int x, int y, const std::string &s, uint8_t fg); // one letter per row, downward from (x,y)
 
-  std::string dump(bool color, bool crlf) const;
+  // bright_bg: the terminal honours SGR 100-107.  The Linux VT does not, so
+  // there a bright background falls back to its dim partner.
+  std::string dump(bool color, bool crlf, bool bright_bg = true) const;
 
 private:
   int W_, H_;

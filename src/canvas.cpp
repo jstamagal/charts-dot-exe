@@ -6,20 +6,39 @@ namespace ch {
 
 Canvas::Canvas(int w, int h) : W_(w < 1 ? 1 : w), H_(h < 1 ? 1 : h), c_(static_cast<std::size_t>(W_) * H_) {}
 
-void Canvas::clear(uint8_t fg) {
-  for (auto &cl : c_) { cl.ch = U' '; cl.fg = fg; cl.bg = BG_NONE; }
+void Canvas::clear(uint8_t fg, uint8_t bg) {
+  for (auto &cl : c_) { cl.ch = U' '; cl.fg = fg; cl.bg = bg; }
 }
+
+// Data is never trusted with the terminal: a control character in a label
+// (an escape sequence, a tab, a C1 byte) is drawn as a blank.
+static char32_t safe(char32_t ch) { return (ch < 0x20 || (ch >= 0x7F && ch < 0xA0)) ? U' ' : ch; }
 
 void Canvas::put(int x, int y, char32_t ch, uint8_t fg) {
   if (!inside(x, y) || ch == 0) return;
+  ch = safe(ch);
   Cell &cl = c_[static_cast<std::size_t>(y) * W_ + x];
   cl.ch = ch;
   cl.fg = fg;
-  cl.bg = BG_NONE;
+}
+
+void Canvas::fill_bg(int x, int y, int w, int h, uint8_t bg) {
+  for (int j = 0; j < h; j++)
+    for (int i = 0; i < w; i++) put(x + i, y + j, U' ', 7, bg);
+}
+
+void Canvas::text_bg(int x, int y, const std::string &s, uint8_t fg, uint8_t bg) {
+  int cx = x;
+  for (char32_t cp : utf8_decode(s)) {
+    if (cx >= W_) break;
+    if (cx >= 0) put(cx, y, cp, fg, bg);
+    cx++;
+  }
 }
 
 void Canvas::put(int x, int y, char32_t ch, uint8_t fg, uint8_t bg) {
   if (!inside(x, y) || ch == 0) return;
+  ch = safe(ch);
   Cell &cl = c_[static_cast<std::size_t>(y) * W_ + x];
   cl.ch = ch;
   cl.fg = fg;
@@ -86,16 +105,21 @@ void Canvas::box(int x, int y, int w, int h, int style, uint8_t fg) {
   put(x + w - 1, y + h - 1, static_cast<char32_t>(BR), fg);
 }
 
-void Canvas::shadow(int x, int y, int w, int h, uint8_t fg, char32_t ch) {
-  // classic DOS drop shadow: one column right, one row below, offset +1/+1
-  vline(x + w, y + 1, h - 1, ch, fg);
-  hline(x + 1, y + h, w, ch, fg);
+void Canvas::shadow(int x, int y, int w, int h) {
+  auto dark = [&](int cx, int cy) {
+    if (!inside(cx, cy)) return;
+    Cell &cl = c_[static_cast<std::size_t>(cy) * W_ + cx];
+    cl.fg = 8;
+    cl.bg = 0;
+  };
+  for (int j = 1; j <= h; j++) { dark(x + w, y + j); dark(x + w + 1, y + j); }
+  for (int i = 2; i < w; i++) dark(x + i, y + h);
 }
 
 void Canvas::vtext(int x, int y, const std::string &s, uint8_t fg) {
   auto cps = utf8_decode(s);
   int cy = y;
-  for (auto cp : cps) { put(x, cy, cp, fg); cy--; }
+  for (auto cp : cps) { put(x, cy, cp, fg); cy++; }
 }
 
 static void sgr_fg(std::string &o, uint8_t n) {
@@ -109,7 +133,7 @@ static void sgr_bg(std::string &o, uint8_t n) {
   else { o += "10"; o += static_cast<char>('0' + (n - 8)); }
 }
 
-std::string Canvas::dump(bool color, bool crlf) const {
+std::string Canvas::dump(bool color, bool crlf, bool bright_bg) const {
   std::string out;
   out.reserve(static_cast<std::size_t>(W_) * H_ * 4);
   for (int y = 0; y < H_; y++) {
@@ -125,7 +149,7 @@ std::string Canvas::dump(bool color, bool crlf) const {
       if (color && (cl.fg != curfg || cl.bg != curbg)) {
         std::string s = "\x1b[0;";
         sgr_fg(s, cl.fg);
-        if (cl.bg != BG_NONE) { s += ';'; sgr_bg(s, cl.bg); }
+        if (cl.bg != BG_NONE) { s += ';'; sgr_bg(s, bright_bg ? cl.bg : (cl.bg & 7)); }
         s += 'm';
         out += s;
         curfg = cl.fg;

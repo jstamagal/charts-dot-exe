@@ -19,7 +19,7 @@ OBJ   := $(SRC:src/%.cpp=build/%.o)
 DEP   := $(OBJ:.o=.d)
 BIN   := charts
 
-.PHONY: all asan test install uninstall static clean run
+.PHONY: all asan test install install-skill uninstall static clean run
 
 all: $(BIN)
 
@@ -54,14 +54,14 @@ asan: | build
 test: all
 	./tests/smoke.sh ./$(BIN)
 	@if command -v python3 >/dev/null 2>&1; then \
-		python3 ./tests/tui.py "$(CURDIR)/$(BIN)" "$(CURDIR)/examples/revenue.csv"; \
+		python3 ./tests/tui.py "$(CURDIR)/$(BIN)" "$(CURDIR)/examples"; \
 	else echo "(no python3: skipping the interactive pty tests)"; fi
 
 test-asan: asan
 	./tests/smoke.sh ./charts-asan
 	@if command -v python3 >/dev/null 2>&1; then \
 		ASAN_OPTIONS=detect_leaks=1 python3 ./tests/tui.py "$(CURDIR)/charts-asan" \
-			"$(CURDIR)/examples/revenue.csv"; \
+			"$(CURDIR)/examples"; \
 	else echo "(no python3: skipping the interactive pty tests)"; fi
 
 install: all
@@ -82,3 +82,14 @@ clean:
 	rm -rf build $(BIN) charts-asan charts-static
 
 -include $(DEP)
+
+# The agent skill: ~/.agents/skills/charts (override SKILLDIR for another agent)
+SKILLDIR ?= $(HOME)/.agents/skills
+install-skill: skill
+	mkdir -p $(SKILLDIR)/charts
+	cp -r skill/charts/. $(SKILLDIR)/charts/
+
+# SKILL.md is `charts -h` with a front page: one source of truth.
+skill: all
+	@{ cat skill/charts/frontmatter.md; echo '```text'; ./$(BIN) -h; echo '```'; } > skill/charts/SKILL.md
+	@echo "skill/charts/SKILL.md regenerated from charts -h"

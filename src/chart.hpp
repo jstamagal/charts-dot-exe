@@ -1,67 +1,57 @@
-// chart.hpp -- render options, palettes and the one entry point charts.cpp fills.
+// chart.hpp -- render options, palettes, annotations and the one entry point
+// charts.cpp fills.
 #pragma once
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include "canvas.hpp"
 #include "data.hpp"
+#include "scene.hpp"
 
 namespace ch {
-
-// Every colour used by the chrome lives here, so a theme is one place.
-struct Skin {
-  uint8_t frame = 8;       // border / rules
-  uint8_t title = 15;
-  uint8_t subtitle = 8;
-  uint8_t axis = 7;
-  uint8_t tick = 15;
-  uint8_t grid = 8;
-  uint8_t label = 7;
-  uint8_t xlabel = 8;
-  uint8_t ylabel = 8;
-  uint8_t legend = 7;
-  uint8_t value = 15;
-  uint8_t shadow = 8;
-  uint8_t table_head = 15;
-  uint8_t table_rule = 8;
-  uint8_t table_row = 7;
-  uint8_t status = 7;
-};
-
-extern Skin S;
 
 struct RenderOpts {
   std::string type = "bar";
   std::string title, subtitle, xlabel, ylabel;
   std::string palette = "dos";
   std::string frame = "double"; // double | single | heavy | ascii | none
+  std::string source;           // printed into the bottom border when set
 
   bool legend = true;
   bool values = false;
   bool grid = true;
   bool color = true;
-  bool ascii = false;
   bool shadow = true;
   bool zero_base = true;
   bool xy = false;
 
   int explode = -2; // -2 never, -1 biggest slice, >=0 index
-  int depth = 2;    // 3-D extrusion rows
+  int depth = 2;    // 3-D extrusion, 0 = flat
   int bins = 10;
   int prec = -1; // number formatting override
 
   double lo = 0, hi = 0;
   bool has_lo = false, has_hi = false;
+
+  std::vector<Annotation> notes;
+  std::vector<std::pair<std::string, int>> colors; // per series or slice; empty name = by position
+
+  // The data point under the editing cursor, ringed so it can be found.
+  int cur_series = -1, cur_index = -1;
 };
+
+// Spec on top of the defaults.  Fields the spec leaves alone keep the value
+// already in `o`, so a caller can seed its own defaults first.
+void apply_spec(const ChartSpec &s, RenderOpts &o);
 
 std::vector<std::string> type_names();
 bool type_valid(const std::string &t);
+std::string type_canonical(const std::string &t); // aliases folded, lower case
 std::vector<std::string> palette_names();
 std::vector<int> palette_cols(const std::string &name, std::size_t n);
 
-// Draws the whole chart (frame, title, axes, data, legend) inside r.
-void render_chart(Canvas &cv, Rect r, Dataset &ds, const RenderOpts &o);
+// Draws the whole chart (frame, title, axes, data, legend, annotations) in r.
+void render_chart(Scene &sc, Rect r, Dataset &ds, const RenderOpts &o);
 
 } // namespace ch

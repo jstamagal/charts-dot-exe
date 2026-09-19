@@ -16,3 +16,5 @@ out/
 *.swp
 *~
 .vscode/
+!docs/img/*.png
+*.charts-tmp

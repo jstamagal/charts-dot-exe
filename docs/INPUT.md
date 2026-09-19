@@ -127,7 +127,11 @@ title.
 {"x": [1, 2, 3], "y": [4, 5, 6]}
 ```
 
-Any pair of numeric arrays next to `x` becomes series.
+Any pair of numeric arrays next to `x` becomes series. A numeric `"x"` beside
+`"series"` makes those series XY data.
+
+A `"chart"` block (or a CSV `#chart` line) may also carry `"annotations"`; see
+[DECK.md](DECK.md#annotations).
 
 ### Notes
 
@@ -159,6 +163,22 @@ Each of these is drawn sensibly:
 
 ## Limits
 
-`charts` is a renderer, not a spreadsheet. It does not sort, filter, aggregate
-or pivot. Shape the data upstream with whatever you already use; give `charts`
-something tidy and it will make it look like 1990.
+`charts` does not sort, filter, aggregate or pivot. Shape the data upstream
+with whatever you already use; give `charts` something tidy and it will make it
+look like 1990.
+
+## Writing back
+
+The presenter's sheet (`e` on a chart) edits values, labels, series names, rows
+and series, and `s` saves them where they came from:
+
+- **CSV / TSV** — rewritten in place with the same delimiter. Leading `#` lines
+  (comments, `#chart:` directives) are kept.
+- **JSON** — rewritten as `{"labels": [...], "series": [{"name", "values"}]}`,
+  keeping the file's `"chart"` block and any other non-data keys. The original
+  shape (records, object of numbers ...) is not preserved.
+- **Inline deck data** — written back into the deck.
+
+A file is never overwritten when that would lose something: if the loader
+dropped a text column, read the file transposed, or kept only `series_col`, the
+sheet still works for trying numbers out but says the file is read-only.

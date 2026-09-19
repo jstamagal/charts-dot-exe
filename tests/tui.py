@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
-"""tests/tui.py -- drive the interactive screen through a real pty.
+"""tests/tui.py -- drive the presenter through a real pty.
 
-Runs the TUI against a fixed-size pseudo-terminal, presses keys and checks that
-frames actually change and that the process leaves the terminal standing.
+Pages through a deck, edits data in the sheet, annotates, saves, and checks
+what landed on disk; then checks each display backend produces a well-formed
+stream, and that the terminal is left standing however the program ends.
 
-usage: tests/tui.py ./charts [examples/revenue.csv]
+usage: tests/tui.py ./charts [examples-dir]
 """
+import base64
+import fcntl
+import json
 import os
 import pty
+import re
 import select
+import shutil
 import signal
 import struct
 import sys
+import tempfile
 import termios
 import time
-import fcntl
+import zlib
 
-BIN = sys.argv[1] if len(sys.argv) > 1 else "./charts"
-DATA = sys.argv[2] if len(sys.argv) > 2 else "examples/revenue.csv"
+BIN = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./charts")
+EXAMPLES = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else "examples")
 
-COLS, ROWS = 100, 28
-
-passed = 0
-failed = 0
+passed = failed = 0
 
 
 def ok(msg):
@@ -37,189 +41,377 @@ def bad(msg):
     print("  FAIL %s" % msg)
 
 
-class Screen:
-    def __init__(self, argv):
+def check(msg, cond, detail=""):
+    ok(msg) if cond else bad(msg + (" (%s)" % detail if detail else ""))
+
+
+KEYS = {"LEFT": "\x1b[D", "RIGHT": "\x1b[C", "UP": "\x1b[A", "DOWN": "\x1b[B", "ENTER": "\r", "ESC": "\x1b",
+        "TAB": "\t", "INS": "\x1b[2~", "DEL": "\x1b[3~", "BS": "\x7f", "HOME": "\x1b[H", "END": "\x1b[F"}
+
+
+class Session:
+    """The program on a pty of a fixed size, with a crude screen model: the
+    text of the last full frame, which is all these tests need."""
+
+    def __init__(self, args, cols=110, rows=32, xpix=0, ypix=0, env=None):
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
-            os.environ["TERM"] = "linux"
-            os.environ.pop("COLUMNS", None)
-            os.environ.pop("LINES", None)
-            try:
-                os.execv(argv[0], argv)
-            except Exception:
-                os._exit(127)
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ,
-                    struct.pack("HHHH", ROWS, COLS, 0, 0))
-        self.buf = b""
+            e = dict(os.environ, TERM="xterm-256color")
+            e.pop("TMUX", None)
+            e.pop("CHARTS_GFX", None)
+            e.pop("NO_COLOR", None)
+            e.update(env or {})
+            os.execve(BIN, [BIN] + args, e)
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, xpix, ypix))
+        self.raw = b""
+        self.read(0.7)
 
-    def drain(self, seconds=0.6):
-        end = time.time() + seconds
+    def read(self, secs):
+        end = time.time() + secs
+        got = b""
         while time.time() < end:
-            r, _, _ = select.select([self.fd], [], [], 0.1)
+            r, _, _ = select.select([self.fd], [], [], 0.05)
             if not r:
                 continue
             try:
-                chunk = os.read(self.fd, 65536)
+                chunk = os.read(self.fd, 1 << 16)
             except OSError:
                 break
             if not chunk:
                 break
-            self.buf += chunk
-        out = self.buf
-        self.buf = b""
+            got += chunk
+        self.raw += got
+        return got
+
+    def keys(self, *tokens, settle=0.35):
+        out = b""
+        for t in tokens:
+            if t in KEYS:
+                data = KEYS[t]
+            elif t.startswith("^") and len(t) == 2:
+                data = chr(ord(t[1].upper()) - 64)
+            else:
+                data = t
+            os.write(self.fd, data.encode())
+            out += self.read(0.3 if t == "ESC" else 0.12)
+        out += self.read(settle)
         return out
 
-    def send(self, keys):
-        os.write(self.fd, keys.encode())
-        time.sleep(0.35)
+    def screen(self, frame=None):
+        """Plain text of the last frame drawn."""
+        data = self.raw if frame is None else frame
+        last = data.rfind(b"\x1b[H")
+        text = data[last:].decode("utf-8", "replace") if last >= 0 else ""
+        return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
 
     def alive(self):
-        pid, status = os.waitpid(self.pid, os.WNOHANG)
-        return pid == 0
+        try:
+            pid, _ = os.waitpid(self.pid, os.WNOHANG)
+            return pid == 0
+        except ChildProcessError:
+            return False
 
-    def quit_and_wait(self, timeout=3.0):
-        end = time.time() + timeout
+    def wait_exit(self, secs=3.0):
+        end = time.time() + secs
         while time.time() < end:
-            pid, status = os.waitpid(self.pid, os.WNOHANG)
-            if pid != 0:
-                return os.waitstatus_to_exitcode(status)
-            time.sleep(0.05)
-        os.kill(self.pid, signal.SIGKILL)
-        os.waitpid(self.pid, 0)
+            try:
+                pid, status = os.waitpid(self.pid, os.WNOHANG)
+            except ChildProcessError:
+                return 0
+            if pid:
+                return status
+            self.read(0.05)
         return None
 
-    def close(self):
+    def kill(self):
+        try:
+            os.kill(self.pid, signal.SIGKILL)
+            os.waitpid(self.pid, 0)
+        except (OSError, ChildProcessError):
+            pass
         try:
             os.close(self.fd)
         except OSError:
             pass
 
 
-def text(frame):
-    return frame.decode("utf-8", "replace")
+def workdir():
+    d = tempfile.mkdtemp(prefix="charts-tui-")
+    for name in os.listdir(EXAMPLES):
+        src = os.path.join(EXAMPLES, name)
+        if os.path.isfile(src):
+            shutil.copy(src, d)
+    return d
 
 
-print("== interactive screen")
+def cleanup(d):
+    trash = shutil.which("trash")
+    if trash:
+        os.spawnv(os.P_WAIT, trash, [trash, d])
 
-s = Screen([os.path.abspath(BIN), "-i", DATA, "--no-color"])
-frame = text(s.drain(1.2))
-if not frame:
-    bad("interactive draws a frame")
-    s.close()
-else:
-    ok("interactive draws a frame")
-    if "╔" in frame or "┌" in frame:
-        ok("frame has a border")
-    else:
-        bad("frame has a border")
-    if DATA.split("/")[-1] in frame:
-        ok("title bar names the file")
-    else:
-        bad("title bar names the file (got %r)" % frame[:200])
-    if "quit" in frame:
-        ok("status bar shows the keys")
-    else:
-        bad("status bar shows the keys")
 
-# 'c' cycles the chart type and the screen must change
-s.send("c")
-frame2 = text(s.drain(0.8))
-if frame2 and frame2 != frame:
-    ok("'c' redraws the screen")
-else:
-    bad("'c' redraws the screen")
+# ---------------------------------------------------------------------------
+print("== paging through a deck")
+d = workdir()
+deck = os.path.join(d, "deck.json")
+s = Session([deck, "--gfx", "cells"])
+check("opens on the title slide", "Q3 review" in s.screen())
+check("counter says 1/3", "1/3" in s.screen())
+s.keys("RIGHT")
+check("right arrow goes to slide 2", "Revenue grew every month" in s.screen() and "2/3" in s.screen())
+check("the annotation is drawn", "spring launch" in s.screen())
+s.keys(" ")
+check("space goes to slide 3", "Where the money went" in s.screen())
+s.keys("RIGHT")
+check("stops at the last slide", "3/3" in s.screen())
+s.keys("LEFT")
+check("left arrow goes back", "2/3" in s.screen())
+s.keys("1", "ENTER")
+check("1 enter jumps to slide 1", "1/3" in s.screen())
+s.keys("END")
+check("end jumps to the last", "3/3" in s.screen())
+s.keys("o")
+check("o opens the overview", "Where the money went" in s.screen() and "pick" in s.screen())
+s.keys("UP", "ENTER")
+check("overview: up, enter lands on slide 2", "2/3" in s.screen())
+s.keys("?")
+check("? opens the key list", "annotate the chart" in s.screen())
+s.keys("x")
+check("any key closes it", "annotate the chart" not in s.screen())
+s.keys("n")
+check("n shows speaker notes", "warehouse move" in s.screen())
+s.keys("n")
+s.keys("t")
+check("t changes the chart type", "type:" in s.screen())
+s.keys("q")
+st = s.wait_exit()
+check("q quits without a fuss when only the view changed", st is not None and os.WIFEXITED(st) and os.WEXITSTATUS(st) == 0,
+      "status %r" % (st,))
+s.kill()
 
-# 'p' cycles the palette, 'v' toggles values, 't' opens the table
-s.send("p")
-if text(s.drain(0.8)):
-    ok("'p' redraws the screen")
-else:
-    bad("'p' redraws the screen")
+# ---------------------------------------------------------------------------
+print("== the sheet: edit, undo, rows, save")
+csv_path = os.path.join(d, "revenue.csv")
+with open(csv_path) as f:
+    body = f.read()
+with open(csv_path, "w") as f:
+    f.write("#chart: ylabel=USD\n# a comment that must survive\n" + body)
+s = Session([deck, "--gfx", "cells", "--slide", "2"])
+s.keys("e")
+check("e opens the sheet", "revenue.csv" in s.screen() and "ins row" in s.screen())
+s.keys("DOWN", "DOWN", "4", "3", "2", "1", "ENTER")
+check("typing replaces the cell", "4,321" in s.screen())
+check("the file is marked dirty", "revenue.csv *" in s.screen())
+s.keys("u")
+check("u undoes it", "4,321" not in s.screen())
+s.keys("UP", "7", "7", "7", "ENTER")
+s.keys("a", "b", "c", "ENTER")
+check("letters in a number cell are refused", "not a number" in s.screen())
+s.keys("ESC")
+s.keys("INS", "D", "e", "c", "2", "TAB", "5", "5", "5", "ENTER")
+check("ins adds a row", "Dec2" in s.screen())
+s.keys("s")
+check("s reports the save", "saved" in s.screen())
+with open(csv_path) as f:
+    saved = f.read()
+check("the edit reached the file", re.search(r"^Mar,777,", saved, re.M) is not None, saved[:200])
+check("the new row reached the file", re.search(r"^Dec2,555", saved, re.M) is not None)
+check("the #chart line survived", saved.startswith("#chart: ylabel=USD\n# a comment that must survive\n"))
+check("the header survived", "month,revenue,costs" in saved)
+s.keys("^D")
+with_row = s.screen()
+s.keys("ESC", "q")
+check("quitting with unsaved edits asks first", "unsaved" in s.screen().lower(), s.screen()[-300:])
+s.keys("ESC")
+check("esc stays", s.alive())
+s.keys("q", "q")
+st = s.wait_exit()
+check("q again quits anyway", st is not None)
+s.kill()
+with open(csv_path) as f:
+    check("unsaved edits did not reach the file", f.read() == saved)
 
-s.send("v")
-if text(s.drain(0.8)):
-    ok("'v' redraws the screen")
-else:
-    bad("'v' redraws the screen")
+# ---------------------------------------------------------------------------
+print("== annotate and save into the deck")
+s = Session([deck, "--gfx", "cells", "--slide", "2"])
+s.keys("a")
+check("a enters annotate mode", "enter note" in s.screen())
+s.keys("RIGHT", "RIGHT")
+check("the status line follows the cursor", "Mar" in s.screen())
+s.keys("ENTER")
+s.keys(*"dip here", "ENTER")
+check("the note is drawn", "dip here" in s.screen())
+s.keys("ESC", "s")
+check("save reports the deck", "deck.json" in s.screen())
+with open(deck) as f:
+    j = json.load(f)
+notes = j["slides"][1].get("annotations", [])
+mine = [n for n in notes if n.get("text") == "dip here"]
+check("the note is in the deck's JSON", len(mine) == 1, json.dumps(notes))
+check("it names the category", mine and mine[0].get("at") == "Mar")
+check("the agent's annotations are still there", any(n.get("text") == "spring launch" for n in notes))
+s.keys("q")
+s.wait_exit()
+s.kill()
 
-s.send("t")
-table = text(s.drain(0.8))
-if "north" in table or "Jan" in table or "revenue" in table:
-    ok("'t' shows the numbers")
-else:
-    bad("'t' shows the numbers")
+# ---------------------------------------------------------------------------
+print("== text, titles, new slides")
+s = Session([deck, "--gfx", "cells", "--slide", "3"])
+s.keys("N")
+s.keys(*"Next steps", "ENTER")
+check("N makes a slide", "Next steps" in s.screen() and "4/4" in s.screen())
+s.keys("i")
+s.keys(*"- hire two", "ENTER", *"- ship it", "ESC")
+check("i adds a text block", "hire two" in s.screen() and "ship it" in s.screen())
+s.keys("E")
+s.keys(*" now", "ENTER")
+check("E edits the title", "Next steps now" in s.screen())
+s.keys("s")
+with open(deck) as f:
+    j = json.load(f)
+check("the new slide is saved", len(j["slides"]) == 4 and j["slides"][3]["title"] == "Next steps now")
+check("with its text", j["slides"][3]["blocks"][0]["text"] == ["- hire two", "- ship it"], json.dumps(j["slides"][3]))
 
-s.send("t")
+print("== an agent rewrites the deck while it is open")
+j["slides"][3]["title"] = "Rewritten from outside"
+time.sleep(1.1)
+with open(deck, "w") as f:
+    json.dump(j, f)
+s.read(1.5)
+check("the screen follows the file", "Rewritten from outside" in s.screen(), s.screen()[:200])
+s.keys("q")
+s.wait_exit()
+s.kill()
 
-# '?' opens the help box
-s.send("?")
-helpframe = text(s.drain(0.8))
-if "palette" in helpframe and "explode" in helpframe:
-    ok("'?' shows the key list")
-else:
-    bad("'?' shows the key list")
-s.send("\x1b")
+# ---------------------------------------------------------------------------
+print("== a bare data file")
+q = os.path.join(d, "quarterly.csv")
+s = Session(["-i", q, "--gfx", "cells"])
+check("-i opens a csv", "north" in s.screen())
+s.keys("a", "ENTER")
+s.keys(*"first", "ENTER")
+s.keys("ESC", "s")
+made = os.path.join(d, "quarterly.deck.json")
+check("saving an annotation makes quarterly.deck.json", os.path.exists(made), s.screen()[-200:])
+if os.path.exists(made):
+    with open(made) as f:
+        j = json.load(f)
+    check("which points at the csv beside it", j["slides"][0]["data"] == "quarterly.csv", json.dumps(j)[:200])
+s.keys("q")
+s.wait_exit()
+s.kill()
 
-# a batch of keys must not crash it
-s.send("cccccppppvvvvgggddeDDDttt11 9999")
-s.send("\x1b[A\x1b[B\x1b[C\x1b[D")
-frame3 = text(s.drain(1.0))
-if s.alive():
-    ok("survives a mashing of keys")
-else:
-    bad("survives a mashing of keys")
+# ---------------------------------------------------------------------------
+print("== the terminal survives")
+s = Session([deck, "--gfx", "cells"])
+s.keys("q")
+s.wait_exit()
+check("the cursor is shown again on exit", b"\x1b[?25h" in s.raw)
+s.kill()
+s = Session([deck, "--gfx", "cells"])
+os.kill(s.pid, signal.SIGTERM)
+s.wait_exit()
+s.read(0.3)
+check("and after SIGTERM", b"\x1b[?25h" in s.raw)
+s.kill()
 
-# leaving must restore the cursor
-s.send("q")
-rc = s.quit_and_wait()
-if rc == 0:
-    ok("'q' exits cleanly (rc=0)")
-else:
-    bad("'q' exits cleanly (got rc=%r)" % rc)
-s.close()
+s = Session([deck, "--gfx", "cells"], cols=110, rows=32)
+before = s.screen()
+fcntl.ioctl(s.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+s.read(1.0)
+after = s.screen()
+lines = [l.rstrip("\r") for l in after.split("\n")]
+check("a resize reflows the slide", after != before and len(lines) <= 24 and max(len(l) for l in lines) <= 80,
+      "%d lines" % len(lines))
+s.keys("q")
+s.wait_exit()
+s.kill()
 
-# Ctrl-C in the middle must also leave cleanly
-s2 = Screen([os.path.abspath(BIN), "-i", DATA, "--no-color"])
-s2.drain(1.0)
-s2.send("\x03")
-rc = s2.quit_and_wait()
-if rc == 0:
-    ok("ctrl-c exits cleanly (rc=0)")
-else:
-    bad("ctrl-c exits cleanly (got rc=%r)" % rc)
-s2.close()
+# ---------------------------------------------------------------------------
+print("== framebuffer")
+fb = os.path.join(d, "fb.raw")
+W, H = 1280, 720
+with open(fb, "wb") as f:
+    f.write(b"\0" * (W * H * 4))
+s = Session([deck], env={"CHARTS_FB": fb, "CHARTS_FB_GEOM": "%dx%dx32" % (W, H), "TERM": "linux"})
+with open(fb, "rb") as f:
+    one = f.read()
+check("a frame of the right size is written", len(one) == W * H * 4)
+check("it is not blank", len(set(one[i:i + 4] for i in range(0, len(one), 4096 * 4 + 4))) > 2)
+blue = bytes([0xAA, 0x00, 0x00])  # B G R of VGA blue
+check("the desktop is VGA blue, in BGRX order", one[0:3] == blue, one[0:4].hex())
+s.keys("RIGHT")
+with open(fb, "rb") as f:
+    two = f.read()
+check("another slide is another picture", one != two)
+s.keys("q")
+s.wait_exit()
+s.kill()
 
-# a broken file in the browser must show the error, not die
-open("/tmp/broken-charts.csv", "w").write("a,b\n,x\n")
-s3 = Screen([os.path.abspath(BIN), "-i", "/tmp/broken-charts.csv", "--no-color"])
-f = text(s3.drain(1.2))
-if "cannot read data" in f or "no numeric" in f:
-    ok("broken input shows an error in-frame")
-else:
-    bad("broken input shows an error in-frame (got %r)" % f[:200])
-s3.send("q")
-s3.quit_and_wait()
-s3.close()
+fb16 = os.path.join(d, "fb16.raw")
+with open(fb16, "wb") as f:
+    f.write(b"\0" * (800 * 600 * 2))
+s = Session([deck], env={"CHARTS_FB": fb16, "CHARTS_FB_GEOM": "800x600x16", "TERM": "linux"})
+with open(fb16, "rb") as f:
+    px = struct.unpack("<H", f.read(2))[0]
+check("16 bpp packs 5-6-5", px == (0xAA >> 3), hex(px))
+s.keys("q")
+s.wait_exit()
+s.kill()
 
-# --watch redraws when the file changes
-import tempfile
-tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False)
-tmp.write("a,b\n1,2\n3,4\n")
-tmp.close()
-s4 = Screen([os.path.abspath(BIN), tmp.name, "--watch", "--no-color"])
-first = text(s4.drain(1.0))
-time.sleep(0.3)
-with open(tmp.name, "w") as fh:
-    fh.write("a,b\n1,2\n3,4\n9,8\n11,12\n")
-second = text(s4.drain(1.8))
-if s4.alive() and second.strip():
-    ok("--watch redraws after the file changes")
-else:
-    bad("--watch redraws after the file changes")
-s4.send("q")
-s4.quit_and_wait()
-s4.close()
-os.unlink(tmp.name)
+# ---------------------------------------------------------------------------
+print("== kitty graphics")
+s = Session([deck, "--gfx", "kitty"], cols=100, rows=30, xpix=1000, ypix=600)
+chunks = re.findall(rb"\x1b_G([^;\x1b]*);([^\x1b]*)\x1b\\", s.raw)
+payload = [c for c in chunks if c[1]]
+check("an image is transmitted", len(payload) > 0)
+check("no chunk is over 4096 bytes", all(len(c[1]) <= 4096 for c in payload))
+check("the first chunk says PNG, quietly", payload and b"f=100" in payload[0][0] and b"q=2" in payload[0][0],
+      payload[0][0].decode() if payload else "")
+frames, cur = [], b""
+for keys, data in payload:
+    cur += data
+    if b"m=0" in keys:
+        frames.append(cur)
+        cur = b""
+png = base64.b64decode(frames[0]) if frames else b""
+check("it decodes to a PNG", png[:8] == b"\x89PNG\r\n\x1a\n")
+if png[:8] == b"\x89PNG\r\n\x1a\n":
+    w, h = struct.unpack(">II", png[16:24])
+    check("sized in whole 8x16 cells that fit the window", w % 8 == 0 and h % 16 == 0 and w <= 1000 and h <= 600,
+          "%dx%d" % (w, h))
+    i, idat, good = 8, b"", True
+    while i < len(png):
+        n = struct.unpack(">I", png[i:i + 4])[0]
+        t, body = png[i + 4:i + 8], png[i + 8:i + 8 + n]
+        good = good and zlib.crc32(t + body) == struct.unpack(">I", png[i + 8 + n:i + 12 + n])[0]
+        if t == b"IDAT":
+            idat += body
+        i += 12 + n
+    check("every chunk's CRC is right", good)
+    check("the pixels inflate", len(zlib.decompress(idat)) == h * ((w + 1) // 2 + 1))
+s.keys("q")
+s.wait_exit()
+check("the images are deleted on the way out", b"a=d,d=A" in s.raw)
+s.kill()
 
+print("== sixel")
+s = Session([deck, "--gfx", "sixel"], cols=100, rows=30, xpix=1000, ypix=600)
+m = re.search(rb"\x1bP[0-9;]*q(.*?)\x1b\\", s.raw, re.S)
+check("a DCS sixel stream is sent and closed", m is not None)
+if m:
+    body = m.group(1)
+    ra = re.match(rb'"1;1;(\d+);(\d+)', body)
+    check("raster attributes give the size", ra is not None)
+    check("sixteen colours are defined", all(b"#%d;2;" % i in body for i in range(16)))
+    rest = re.sub(rb'"[0-9;]+|#\d+;2;\d+;\d+;\d+', b"", body)
+    check("only sixel data follows", re.fullmatch(rb"[#0-9!$\-?-~]*", rest) is not None)
+    if ra:
+        check("it keeps off the last row, which would scroll", int(ra.group(2)) <= 29 * 20, ra.group(2).decode())
+s.keys("q")
+s.wait_exit()
+s.kill()
+
+cleanup(d)
 print("\n%d passed, %d failed" % (passed, failed))
 sys.exit(1 if failed else 0)
