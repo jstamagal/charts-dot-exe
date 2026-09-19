@@ -796,6 +796,7 @@ usage "-w not a number"           "$EX/revenue.csv" -w abc
 usage "-w zero"                   "$EX/revenue.csv" -w 0
 usage "-H negative"               "$EX/revenue.csv" -H -4
 usage "-w trailing junk"          "$EX/revenue.csv" -w 80x
+usage "-w beyond an int"          "$EX/revenue.csv" -w 1e300
 usage "--slide 0"                 "$DECK/deck.json" --print --slide 0
 usage "--slide not a number"      "$DECK/deck.json" --print --slide two
 usage "--size malformed"          "$DECK/deck.json" --png "$TMP/x.png" --size 10
@@ -858,6 +859,28 @@ head -c 3000 /dev/urandom > "$TMP/random.csv" 2>/dev/null;    hostile "random by
 cp "$TMP/random.csv" "$TMP/random.json";                      hostile "random bytes as json" "$TMP/random.json"
 printf '\xef\xbb\xbfk,v\na,1\nb,2\n' > "$TMP/bom.csv"
 "$BIN" --describe "$TMP/bom.csv" 2>/dev/null | grep -q "^rows:    2"; check "UTF-8 BOM is skipped" "$?" "0"
+
+echo "== hostile decks"
+hostile_deck() { # NAME FILE  -> --check, --print and --png each exit 0 or 1 within 20 s, with no sanitizer report
+  local name="$1" f="$2"
+  for args in "--check" "--print -w 80 -H 24 --no-color" "--png $TMP/hd.png --size 60x20"; do
+    # shellcheck disable=SC2086
+    timeout 20 "$BIN" "$f" $args > "$TMP/hd.out" 2> "$TMP/hd.err"; local rc=$?
+    if [ $rc -eq 124 ]; then bad "$name ($args): took over 20 s"; return; fi
+    if [ $rc -ne 0 ] && [ $rc -ne 1 ]; then bad "$name ($args): rc=$rc: $(head -c 300 "$TMP/hd.err")"; return; fi
+    if grep -q -E 'AddressSanitizer|runtime error:' "$TMP/hd.err"; then bad "$name ($args): sanitizer report"; return; fi
+  done
+  ok "$name"
+}
+cp "$EX/revenue.csv" "$TMP/"
+printf '{"slides":[{"title":"t","type":"bar","data":"revenue.csv","annotations":[{"at":1e300,"text":"x"},{"at":"Apr","series":-1e300,"text":"y"},{"at":2.5,"text":"z"}]}]}' > "$TMP/hd-at.json"
+hostile_deck "an annotation row beyond an int" "$TMP/hd-at.json"
+printf '{"slides":[{"title":"t","type":"bar","data":"revenue.csv"},{"like":1e300},{"like":-1e300},{"like":1.5}]}' > "$TMP/hd-like.json"
+hostile_deck "like beyond an int" "$TMP/hd-like.json"
+printf '{"display":{"size":[1e300,1e300],"scale":1e300},"slides":[{"title":"t","text":"hi"}]}' > "$TMP/hd-size.json"
+hostile_deck "a display size beyond an int" "$TMP/hd-size.json"
+"$BIN" "$TMP/hd-size.json" --check > "$TMP/hd-size.out" 2>&1; check "a display size beyond an int is an error" "$?" "1"
+has "a display size beyond an int is named" "$TMP/hd-size.out" "display.size"
 
 # ------------------------------------------------------------------------------
 if [ $HAVE_PY -eq 1 ]; then

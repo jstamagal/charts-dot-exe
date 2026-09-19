@@ -1,5 +1,6 @@
 #include "cli.hpp"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
@@ -139,8 +140,8 @@ Args parse_args(int argc, char **argv) {
     return argv[++i];
   };
   auto integer = [&](const std::string &s, const std::string &what, int lo, int hi) -> int {
-    double d;
-    if (!parse_num(s, d) || d != static_cast<int>(d) || d < lo || d > hi)
+    double d; // range first: the cast is only defined for a value that fits
+    if (!parse_num(s, d) || d < lo || d > hi || d != std::floor(d))
       throw UsageError(what + " wants a whole number from " + std::to_string(lo) + " to " + std::to_string(hi) + ", not \"" + s + "\"");
     return static_cast<int>(d);
   };

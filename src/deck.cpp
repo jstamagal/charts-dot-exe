@@ -215,8 +215,8 @@ struct Parser {
     if (like.is_num()) {
       const Json *slides = d.root.get("slides");
       const int n = slides && slides->is_arr() ? static_cast<int>(slides->a.size()) : 0;
-      const int k = static_cast<int>(like.n);
-      if (like.n != k || k < 1 || k > n) {
+      const int k = like.n >= 1 && like.n <= n && like.n == std::floor(like.n) ? static_cast<int>(like.n) : 0;
+      if (k < 1) {
         why = "wants a slide number from 1 to " + std::to_string(n) + ", or a path like \"slides[2].blocks[0]\"";
         return false;
       }
@@ -693,8 +693,9 @@ struct Parser {
             if (!x.is_num() || x.n < 1 || x.n > 8) err("display.scale", "wants 1..8");
             else d.scale = static_cast<int>(x.n);
           } else if (dk == "size") {
-            if (!x.is_arr() || x.a.size() != 2 || !x.a[0].is_num() || !x.a[1].is_num() || x.a[0].n < 20 || x.a[1].n < 6)
-              err("display.size", "wants [columns, rows], at least [20, 6]");
+            if (!x.is_arr() || x.a.size() != 2 || !x.a[0].is_num() || !x.a[1].is_num() || x.a[0].n < 20 || x.a[1].n < 6 ||
+                x.a[0].n > 1000 || x.a[1].n > 500)
+              err("display.size", "wants [columns, rows], from [20, 6] to [1000, 500]");
             else { d.cols = static_cast<int>(x.a[0].n); d.rows = static_cast<int>(x.a[1].n); }
           } else if (dk == "ascii") d.ascii = x.is_bool() ? x.b : 1;
           else if (dk == "color" || dk == "colour") d.color = x.is_bool() ? x.b : 1;

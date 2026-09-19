@@ -356,9 +356,12 @@ Annotation annotation_from_json(const Json &obj) {
   if (!obj.is_obj()) throw std::runtime_error("must be an object like {\"at\":\"Mar\",\"text\":\"launch\"}");
   Annotation a;
   bool placed = false;
+  // A number is a 0-based row when it is a whole one that fits an int; its
+  // text may still name a category ("2.5") either way.
+  auto row = [](double n) { return n >= 0 && n < 1e9 && n == std::floor(n) ? static_cast<int>(n) : -1; };
   auto category = [&](const Json &v) {
     if (v.is_str()) a.label = v.s;
-    else if (v.is_num()) { a.label = fmt_val(v.n); a.index = static_cast<int>(v.n); }
+    else if (v.is_num()) { a.label = fmt_val(v.n); a.index = row(v.n); }
     else throw std::runtime_error("the category must be a label or a 0-based row number");
   };
   for (const auto &kv : obj.o) {
@@ -367,7 +370,7 @@ Annotation annotation_from_json(const Json &obj) {
     if (k == "text" || k == "label" || k == "say") a.text = json_str(v, kv.first);
     else if (k == "at" || k == "point" || k == "category") { category(v); a.kind = Annotation::POINT; placed = true; }
     else if (k == "series") {
-      if (v.is_num()) a.series_i = static_cast<int>(v.n);
+      if (v.is_num()) a.series_i = row(v.n);
       else a.series = json_str(v, kv.first);
     } else if (k == "y" || k == "hline" || k == "value") {
       a.value = json_num(v, kv.first, -1e15, 1e15);
