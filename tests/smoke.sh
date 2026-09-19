@@ -640,7 +640,8 @@ cat > "$TMP/like.json" <<'EOF2'
 {"slides": [
   {"title": "quiet", "type": "bar", "data": "like.csv", "min": 0, "max": 5, "colors": ["grey"], "notes": "say this"},
   {"title": "loud", "like": 1, "type": "hbar", "annotations": [{"at": "b", "text": "this one"}]},
-  {"title": "as a block", "blocks": [{"like": "slides[1]", "at": [0, 0, 6, 12]}, {"text": "hi", "at": [6, 0, 6, 12]}]}
+  {"title": "as a block", "blocks": [{"like": "slides[1]", "at": [0, 0, 6, 12]}, {"text": "hi", "at": [6, 0, 6, 12]}]},
+  {"title": "a path to a slide with blocks", "like": "slides[2]", "type": "line"}
 ]}
 EOF2
 "$BIN" "$TMP/like.json" --check > "$TMP/like.out" 2>&1; check "like: a clean deck" "$?" "0"
@@ -648,6 +649,7 @@ EOF2
 has "like: the chart comes along" "$TMP/liked.out" "chart hbar  like.csv  3 rows x 1 series, 1 annotation"
 check "like: the slide's notes stay behind" "$(grep -c '(notes)' "$TMP/liked.out")" "1"
 has "like: a path works too" "$TMP/liked.out" "3. as a block"
+has "like: a path to a slide with blocks takes its chart, as a number does" "$TMP/liked.out" "chart line  like.csv  3 rows x 1 series"
 "$BIN" "$TMP/like.json" --png-dir "$TMP/likepng" > /dev/null 2>&1; check "like: renders" "$?" "0"
 printf '{"slides":[{"title":"a","like":7},{"title":"b","blocks":[{"like":"slides[1].blocks[0]"}]},{"title":"c","blocks":[{"like":"slides[2].blocks[1]"},{"like":"slides[2].blocks[0]"}]}]}' > "$TMP/likebad.json"
 "$BIN" "$TMP/likebad.json" --check > "$TMP/likebad.out" 2>&1; check "like: bad targets are errors" "$?" "1"

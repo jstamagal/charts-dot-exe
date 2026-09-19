@@ -217,6 +217,19 @@ struct Parser {
     if (depth > 8) { why = "goes round in a circle (or more than 8 deep)"; return false; }
     const Json *t = nullptr;
     bool whole_slide = false;
+    // A slide stands for its chart (else its first block); a shorthand slide
+    // is its own one block.
+    auto of_slide = [&](const Json &sl) {
+      const Json *blocks = sl.get("blocks");
+      if (blocks && blocks->is_arr()) {
+        for (const auto &b : blocks->a)
+          if (!t && b.is_obj() && b.get("data")) t = &b;
+        if (!t && !blocks->a.empty()) t = &blocks->a[0];
+      } else {
+        t = &sl;
+        whole_slide = true;
+      }
+    };
     if (like.is_num()) {
       const Json *slides = d.root.get("slides");
       const int n = slides && slides->is_arr() ? static_cast<int>(slides->a.size()) : 0;
@@ -225,19 +238,11 @@ struct Parser {
         why = "wants a slide number from 1 to " + std::to_string(n) + ", or a path like \"slides[2].blocks[0]\"";
         return false;
       }
-      const Json &sl = slides->a[static_cast<std::size_t>(k - 1)];
-      const Json *blocks = sl.get("blocks");
-      if (blocks && blocks->is_arr()) {
-        for (const auto &b : blocks->a)
-          if (!t && b.is_obj() && b.get("data")) t = &b; // the chart, when the slide has one
-        if (!t && !blocks->a.empty()) t = &blocks->a[0];
-      } else {
-        t = &sl;
-        whole_slide = true;
-      }
+      of_slide(slides->a[static_cast<std::size_t>(k - 1)]);
     } else if (like.is_str()) {
-      t = d.node(like.s);
-      whole_slide = like.s.find('.') == std::string::npos; // "slides[2]"
+      const Json *at = d.node(like.s);
+      if (at && at->is_obj() && like.s.find('.') == std::string::npos) of_slide(*at); // "slides[2]"
+      else t = at;
     } else {
       why = "wants a slide number, or a path like \"slides[2].blocks[0]\"";
       return false;
