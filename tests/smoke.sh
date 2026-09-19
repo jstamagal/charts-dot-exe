@@ -228,6 +228,17 @@ printf 'k,v\n  # an indented comment\na,1\n\t#another\nb,2\n' > "$TMP/cmt.csv"
 "$BIN" "$TMP/cmt.csv" --describe < /dev/null > "$TMP/cmt.out" 2>&1
 has "an indented # line is a comment, as the #chart scanner has it" "$TMP/cmt.out" "rows:    2"
 
+echo "== every character takes one cell"
+printf 'k,v\n日本語ラベル,3\némoji 🎉 label,4\ne\xcc\x81t\xe2\x80\xaeoile,5\n' > "$TMP/wide.csv"
+"$BIN" "$TMP/wide.csv" -t hbar --print -w 60 -H 12 --no-color < /dev/null > "$TMP/wide.out" 2>/dev/null; check "wide labels: exit 0" "$?" "0"
+if [ $HAVE_PY -eq 1 ]; then check "wide labels do not tear the frame" "$(widest < "$TMP/wide.out")" "60"; fi
+has "a wide character is drawn as ?" "$TMP/wide.out" "??????"
+has "zero-width marks and bidi overrides take no cell" "$TMP/wide.out" "etoile"
+printf '{"slides":[{"title":"日本","data":"wide.csv"}]}' > "$TMP/wide.json"
+"$BIN" "$TMP/wide.json" --check < /dev/null > "$TMP/widechk.out" 2>&1
+has "--check says where a title has them" "$TMP/widechk.out" "slides[0].title: has characters two cells wide"
+has "and where a data file has them" "$TMP/widechk.out" "wide.csv has characters two cells wide"
+
 echo "== tables show words, and numbers as the file wrote them"
 printf 'layout,ts,last,tg,pp\nCC,1/1,CUDA,115.3,3015\nCRRC,14/30/30/14,CUDA,59.0,1124\n' > "$TMP/tab.csv"
 "$BIN" "$TMP/tab.csv" -t table --print -w 80 -H 8 --ascii --no-color > "$TMP/tab.out" 2>&1; check "table with text columns: exit 0" "$?" "0"

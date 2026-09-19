@@ -88,7 +88,7 @@ std::vector<Glyph32> inline_marks(const std::string &s) {
   bool strong = false;
   for (std::size_t i = 0; i < cps.size(); i++) {
     if (cps[i] == U'*' && i + 1 < cps.size() && cps[i + 1] == U'*') { strong = !strong; i++; continue; }
-    out.push_back({cps[i], strong});
+    if (cell_of(cps[i])) out.push_back({cps[i], strong}); // zero width takes no cell
   }
   return out;
 }

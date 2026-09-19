@@ -198,6 +198,32 @@ struct Parser {
     }
   }
 
+  // The font has no CJK or emoji, and a character two cells wide would tear
+  // the layout, so they are drawn as '?'.  Say where, a few times at most.
+  int wide_warned = 0;
+  void wide(const std::string &path, const std::string &what) {
+    if (wide_warned++ < 3)
+      warn(path, what + " characters two cells wide (CJK, emoji): the font has none, so they are drawn as ?");
+  }
+  void check_wide(const Json &j, const std::string &path) {
+    if (j.is_str() && has_wide(j.s)) wide(path, "has");
+    else if (j.is_arr())
+      for (std::size_t i = 0; i < j.a.size(); i++) check_wide(j.a[i], path + "[" + std::to_string(i) + "]");
+    else if (j.is_obj())
+      for (const auto &kv : j.o) check_wide(kv.second, path.empty() ? kv.first : path + "." + kv.first);
+  }
+  void check_wide_data(const Block &b, const std::string &where) {
+    if (b.data_ref.empty()) return; // inline data is in the deck, checked with it
+    bool hit = false;
+    for (const auto &l : b.ds.labels) hit = hit || has_wide(l);
+    for (const auto &se : b.ds.series) hit = hit || has_wide(se.name);
+    for (const auto &t : b.ds.text) {
+      hit = hit || has_wide(t.name);
+      for (const auto &v : t.v) hit = hit || has_wide(v);
+    }
+    if (hit) wide(where + ".data", b.data_ref + " has");
+  }
+
   // Error bars name columns of the data; a name that is not there draws nothing.
   void check_errors(const Block &b, const std::string &where) {
     const ChartSpec &spec = b.spec.has_errors ? b.spec : b.ds.spec;
@@ -597,6 +623,7 @@ struct Parser {
         check_notes(b, b.spec, path);
         check_colors(b, path);
         check_errors(b, path);
+        check_wide_data(b, path);
         if (b.spec.has_series_col || b.spec.has_label_col) { /* shaped on load */ }
       }
     } else if (b.kind == Block::ROWS || b.kind == Block::COLS) {
@@ -736,6 +763,7 @@ struct Parser {
         if (v.a.empty()) err("slides", "is empty: a deck needs at least one slide");
         for (std::size_t i = 0; i < v.a.size(); i++)
           d.slides.push_back(slide(v.a[i], "slides[" + std::to_string(i) + "]"));
+        check_wide(v, "slides");
       } else {
         if (private_key(k)) continue;
         std::string hint = nearest(k, DECK_KEYS);

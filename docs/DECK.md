@@ -334,4 +334,5 @@ block minus 10 columns and 6 rows.
 - Slide titles: 55 characters at full size.
 - `ylabel` runs down the axis a letter a row: about 18 characters on a full-height chart.
 - A `# heading` in a text block is double size when it fits on one line that way, normal size otherwise.
+- Text is Latin, Greek, Cyrillic and box drawing. CJK and emoji are two cells wide and not in the font, so they are drawn as `?`; `--check` says where they are.
 - A flow fits about five steps across a full-width slide; an arrow's label wants to be no wider than the gap it names (about 12 characters).

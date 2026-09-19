@@ -34,7 +34,14 @@ double nice_step(double raw);
 std::string u32_to_utf8(char32_t c);
 std::vector<char32_t> utf8_decode(const std::string &s);
 std::string clean_utf8(const std::string &s); // ill-formed bytes -> U+FFFD
-std::size_t cp_len(const std::string &s); // codepoint count (width-1 assumption)
+// Every character charts draws takes exactly one cell.  Control characters
+// become a blank; zero-width ones (combining marks, joiners, bidi controls,
+// variation selectors) are not drawn; a character two cells wide (CJK,
+// emoji) becomes '?', since neither the font nor the layout can hold it.
+char32_t cell_of(char32_t c); // 0 = not drawn
+bool is_wide(char32_t c);
+bool has_wide(const std::string &s);
+std::size_t cp_len(const std::string &s); // the cells s takes, by cell_of
 
 // ---- glyphs ----------------------------------------------------------------
 // blk[] runs dense -> sparse: [0]=full [1]=dark [2]=medium [3]=light

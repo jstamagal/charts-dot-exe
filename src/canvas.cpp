@@ -11,8 +11,12 @@ void Canvas::clear(uint8_t fg, uint8_t bg) {
 }
 
 // Data is never trusted with the terminal: a control character in a label
-// (an escape sequence, a tab, a C1 byte) is drawn as a blank.
-static char32_t safe(char32_t ch) { return (ch < 0x20 || (ch >= 0x7F && ch < 0xA0)) ? U' ' : ch; }
+// (an escape sequence, a tab, a C1 byte) is drawn as a blank, and nothing is
+// wider or narrower than its one cell (see cell_of).
+static char32_t safe(char32_t ch) {
+  char32_t c = cell_of(ch);
+  return c ? c : U' ';
+}
 
 void Canvas::put(int x, int y, char32_t ch, uint8_t fg) {
   if (!inside(x, y) || ch == 0) return;
@@ -30,6 +34,7 @@ void Canvas::fill_bg(int x, int y, int w, int h, uint8_t bg) {
 void Canvas::text_bg(int x, int y, const std::string &s, uint8_t fg, uint8_t bg) {
   int cx = x;
   for (char32_t cp : utf8_decode(s)) {
+    if (!cell_of(cp)) continue; // zero width: takes no cell
     if (cx >= W_) break;
     if (cx >= 0) put(cx, y, cp, fg, bg);
     cx++;
@@ -49,6 +54,7 @@ void Canvas::text(int x, int y, const std::string &s, uint8_t fg) {
   if (y < 0 || y >= H_) return;
   int cx = x;
   for (char32_t cp : utf8_decode(s)) {
+    if (!cell_of(cp)) continue;
     if (cx >= W_) break;
     if (cx >= 0) put(cx, y, cp, fg);
     cx++;
@@ -119,7 +125,8 @@ void Canvas::shadow(int x, int y, int w, int h) {
 void Canvas::vtext(int x, int y, const std::string &s, uint8_t fg) {
   auto cps = utf8_decode(s);
   int cy = y;
-  for (auto cp : cps) { put(x, cy, cp, fg); cy++; }
+  for (auto cp : cps)
+    if (cell_of(cp)) put(x, cy++, cp, fg);
 }
 
 static void sgr_fg(std::string &o, uint8_t n) {

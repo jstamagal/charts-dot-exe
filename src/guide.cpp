@@ -251,6 +251,8 @@ WHAT FITS   (120 x 33 cells; text that does not fit is cut, never shrunk)
   stat ............... value <= 6 chars draws large; label <= 30 in a third-width tile
   values: true ....... good to ~12 categories x 2 series; numbers that do not fit are dropped
   line charts ........ ~40 points.   hist: up to 60 bins.
+  characters ......... Latin, Greek, Cyrillic, box drawing.  CJK and emoji are two
+                       cells wide and not in the font: drawn as ?, and --check says where.
   flow ............... ~5 steps across a full-width slide, more with "dir": "down";
                        an arrow label as wide as the gap it names, ~12 characters.
 

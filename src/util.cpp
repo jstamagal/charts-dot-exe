@@ -141,7 +141,7 @@ std::string pad_center(std::string s, std::size_t n) {
 std::string trunc_to(std::string s, std::size_t n) {
   if (cp_len(s) <= n) return s;
   if (n == 0) return "";
-  if (n == 1) return s.substr(0, 1);
+  if (n == 1) return u32_to_utf8(utf8_decode(s).front()); // a character, never half of one
   // keep it glyph-safe: walk bytes until we have n-1 codepoints, add '.'
   auto cps = utf8_decode(s);
   std::string o;
@@ -324,7 +324,35 @@ std::string clean_utf8(const std::string &s) {
   return out;
 }
 
-std::size_t cp_len(const std::string &s) { return utf8_decode(s).size(); }
+bool is_wide(char32_t c) {
+  return (c >= 0x1100 && c <= 0x115F) || (c >= 0x2E80 && c <= 0x303E) || (c >= 0x3041 && c <= 0x33FF) ||
+         (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xA000 && c <= 0xA4CF) ||
+         (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFE30 && c <= 0xFE4F) ||
+         (c >= 0xFF00 && c <= 0xFF60) || (c >= 0xFFE0 && c <= 0xFFE6) || (c >= 0x1F300 && c <= 0x1F64F) ||
+         (c >= 0x1F680 && c <= 0x1F6FF) || (c >= 0x1F900 && c <= 0x1F9FF) || (c >= 0x1FA70 && c <= 0x1FAFF) ||
+         (c >= 0x20000 && c <= 0x3FFFD);
+}
+
+char32_t cell_of(char32_t c) {
+  if (c < 0x20 || (c >= 0x7F && c < 0xA0)) return U' ';
+  if ((c >= 0x0300 && c <= 0x036F) || (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E) ||
+      (c >= 0x2060 && c <= 0x2069) || (c >= 0xFE00 && c <= 0xFE0F) || c == 0xFEFF)
+    return 0;
+  return is_wide(c) ? U'?' : c;
+}
+
+bool has_wide(const std::string &s) {
+  for (char32_t c : utf8_decode(s))
+    if (is_wide(c)) return true;
+  return false;
+}
+
+std::size_t cp_len(const std::string &s) {
+  std::size_t n = 0;
+  for (char32_t c : utf8_decode(s))
+    if (cell_of(c)) n++;
+  return n;
+}
 
 // ---- wrapping ----------------------------------------------------------------
 

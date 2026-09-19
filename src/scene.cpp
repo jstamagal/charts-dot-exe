@@ -124,7 +124,8 @@ void Scene::text(double x, double y, const std::string &s, uint8_t fg, int bg, i
   TextItem t;
   t.x = x;
   t.y = y;
-  for (char32_t cp : utf8_decode(s)) t.s += u32_to_utf8((cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) ? U' ' : cp);
+  for (char32_t cp : utf8_decode(s))
+    if (char32_t c = cell_of(cp)) t.s += u32_to_utf8(c);
   t.fg = fg;
   t.bg = bg;
   t.scale = scale < 1 ? 1 : scale;
