@@ -914,6 +914,11 @@ printf '{"display":{"size":[1e300,1e300],"scale":1e300},"slides":[{"title":"t","
 hostile_deck "a display size beyond an int" "$TMP/hd-size.json"
 "$BIN" "$TMP/hd-size.json" --check > "$TMP/hd-size.out" 2>&1; check "a display size beyond an int is an error" "$?" "1"
 has "a display size beyond an int is named" "$TMP/hd-size.out" "display.size"
+if [ $HAVE_PY -eq 1 ]; then
+  python3 -c 'print("k,v"); [print("%s%d,%d" % ("x" * 30000, i, i)) for i in range(3)]' > "$TMP/hd-long.csv"
+  python3 -c 'import json; print(json.dumps({"slides": [{"title": "t", "type": "bar", "data": "hd-long.csv", "annotations": [{"at": "y" * 30000, "text": "hi"}], "colors": {"z" * 30000: "red"}}]}))' > "$TMP/hd-long.json"
+  hostile_deck "a did-you-mean over 30 kB names" "$TMP/hd-long.json"
+fi
 
 # ------------------------------------------------------------------------------
 if [ $HAVE_PY -eq 1 ]; then

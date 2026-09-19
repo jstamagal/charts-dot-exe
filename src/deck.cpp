@@ -38,19 +38,28 @@ std::string resolve(const std::string &dir, const std::string &ref) {
   return dir + "/" + ref;
 }
 
-std::size_t edit_distance(const std::string &a, const std::string &b) {
-  std::vector<std::size_t> row(b.size() + 1);
-  for (std::size_t j = 0; j <= b.size(); j++) row[j] = j;
-  for (std::size_t i = 1; i <= a.size(); i++) {
-    std::size_t prev = row[0];
-    row[0] = i;
-    for (std::size_t j = 1; j <= b.size(); j++) {
-      std::size_t cur = row[j];
-      row[j] = std::min({row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] == b[j - 1] ? 0 : 1)});
-      prev = cur;
+// Levenshtein distance, or cap + 1 when it is more than cap.  Only the cells
+// within cap of the diagonal can hold a distance that small, so only they
+// are computed: linear in the length, where the full table is quadratic and
+// a did-you-mean over two long names took seconds.
+std::size_t edit_distance(const std::string &a, const std::string &b, std::size_t cap) {
+  const std::size_t n = a.size(), m = b.size(), INF = cap + 1;
+  if (n > m + cap || m > n + cap) return INF;
+  std::vector<std::size_t> prev(m + 1, INF), cur(m + 1, INF);
+  for (std::size_t j = 0; j <= m && j <= cap; j++) prev[j] = j;
+  for (std::size_t i = 1; i <= n; i++) {
+    const std::size_t lo = i > cap ? i - cap : 0, hi = std::min(m, i + cap);
+    if (lo > 0) cur[lo - 1] = INF; // left of the band: stale from two rows back
+    else cur[0] = i;
+    for (std::size_t j = std::max<std::size_t>(1, lo); j <= hi; j++) {
+      std::size_t d = prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+      d = std::min(d, prev[j] + 1);
+      d = std::min(d, cur[j - 1] + 1);
+      cur[j] = std::min(d, INF);
     }
+    std::swap(prev, cur);
   }
-  return row[b.size()];
+  return prev[m];
 }
 
 std::string nearest(const std::string &word, const std::vector<std::string> &known) {
@@ -62,7 +71,7 @@ std::string nearest(const std::string &word, const std::vector<std::string> &kno
   for (const auto &k : known) {
     std::string kl = lower(k), ks = kl;
     std::sort(ks.begin(), ks.end());
-    std::size_t d = edit_distance(w, kl) * 2;
+    std::size_t d = edit_distance(w, kl, bd) * 2;
     if (d > 0 && ks == ws) d--; // the same letters swapped round is the likelier slip
     if (d < bd * 2 && d < best_d) { best_d = d; best = k; }
   }
