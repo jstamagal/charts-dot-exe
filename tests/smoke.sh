@@ -664,6 +664,16 @@ printf '{"slides":[{"title":"t","type":"hbar","data":"side.csv","annotations":[{
 has "hbar: the value line is labelled" "$TMP/side.out" "target"
 has "hbar: the category line is drawn and labelled" "$TMP/side.out" "this row"
 
+echo "== scatter: an x annotation stands at a value on the X axis"
+printf '#chart: xy\nh,coins\n2,10\n4,20\n6,30\n8,40\n' > "$TMP/sx.csv"
+printf '{"slides":[{"title":"t","type":"scatter","data":"sx.csv","annotations":[{"x":5,"text":"halfway"},{"x":"3.5","text":"quoted"},{"x":99,"text":"off the axis"}]}]}' > "$TMP/sx.json"
+"$BIN" "$TMP/sx.json" --check > "$TMP/sx.chk" 2>&1; check "scatter x annotation: --check is clean" "$?" "0"
+has "scatter x annotation: no warning about a category" "$TMP/sx.chk" "0 errors, 0 warnings"
+"$BIN" "$TMP/sx.json" --print -w 80 -H 20 --no-color > "$TMP/sx.out" 2>&1
+has "scatter x annotation: drawn at a value between the points" "$TMP/sx.out" "halfway"
+has "scatter x annotation: a quoted number too" "$TMP/sx.out" "quoted"
+hasnt "scatter x annotation: outside the axis is skipped" "$TMP/sx.out" "off the axis"
+
 echo "== flow diagrams"
 cat > "$TMP/flow.json" <<'EOF2'
 {"slides": [

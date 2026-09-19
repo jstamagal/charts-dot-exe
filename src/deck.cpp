@@ -162,6 +162,11 @@ struct Parser {
         bool found = a.index >= 0 && a.index < static_cast<int>(b.ds.nrows());
         for (const auto &l : b.ds.labels)
           if (ieq(trim(l), trim(a.label))) found = true;
+        // On a numeric X axis (the data's own x column) an "x" line stands at a value.
+        double xv;
+        if (a.kind == Annotation::VLINE && !b.ds.series.empty() && !b.ds.series[0].name.empty() &&
+            b.ds.series[0].name[0] == '\x01' && parse_num(a.label, xv))
+          found = true;
         if (!found) {
           std::string hint = nearest(a.label, b.ds.labels);
           warn(p, "no category \"" + a.label + "\" in the data, so this is not drawn" +

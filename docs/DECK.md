@@ -283,11 +283,11 @@ saves a CSV back to its file, and inline data back into the deck.
 | --- | --- |
 | `at` (+ `series`) | a callout with a leader line to one data point; on a pie, to the slice |
 | `y` | a dashed line across the plot at that value, labelled |
-| `x` | a dashed line up the plot at that category, labelled |
+| `x` | a dashed line up the plot at that category, labelled; on a scatter, at that value on the X axis |
+| `note` | free text; `[x, y]` from 0 to 1 across the plot, `[0,0]` top left |
 
 On `hbar` and `dumbbell` the value axis runs across, so a `y` line stands up at
 its value and an `x` line lies across its category's row.
-| `note` | free text; `[x, y]` from 0 to 1 across the plot, `[0,0]` top left |
 
 `at` and `x` take the category label exactly as it is in the data (case does
 not matter), or a 0-based row number. `series` is the series name; leave it

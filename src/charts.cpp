@@ -155,6 +155,8 @@ struct Plot {
   std::vector<double> slot_cx; // category centres, pixels
   std::vector<double> slot_cy; // the same down the side, when the value axis runs across
   bool across = false;         // hbar, dumbbell: values run left to right
+  bool numeric_x = false;      // scatter: X is a value, not a category
+  double xlo = 0, xhi = 1;
   mutable std::vector<Box> taken; // value labels already down: callouts keep off them
 
   double X(double v) const { // the value axis of a chart laid on its side
@@ -340,6 +342,9 @@ Plot make_axes(Scene &sc, Rect r, Rect clip, double lo, double hi, const std::ve
       sc.text(x, laby, lab, S.label);
     }
   } else if (numeric_x) {
+    p.numeric_x = true;
+    p.xlo = xlo;
+    p.xhi = xhi;
     std::vector<double> xt = nice_ticks(xlo, xhi, std::max(2, std::min(8, gw / 12 + 2)));
     for (double t : xt) {
       double f = (xhi > xlo) ? (t - xlo) / (xhi - xlo) : 0;
@@ -1492,9 +1497,16 @@ void draw_notes(Scene &sc, Plot &p, const Dataset &ds, const RenderOpts &o, bool
       continue;
     }
     if (a.kind == Annotation::VLINE && !pie) {
-      int row = row_of(a);
-      if (row < 0 || row >= static_cast<int>(p.slot_cx.size())) continue;
-      int x = static_cast<int>(p.slot_cx[static_cast<std::size_t>(row)]);
+      int x = -1;
+      double xv = 0;
+      if (p.numeric_x) { // a scatter: "x" is a value on the X axis, not a category
+        if (!parse_num(a.label, xv) || xv < p.xlo || xv > p.xhi || !(p.xhi > p.xlo)) continue;
+        x = static_cast<int>(std::lround(p.ox + (xv - p.xlo) / (p.xhi - p.xlo) * (p.pw - 1)));
+      } else {
+        int row = row_of(a);
+        if (row < 0 || row >= static_cast<int>(p.slot_cx.size())) continue;
+        x = static_cast<int>(p.slot_cx[static_cast<std::size_t>(row)]);
+      }
       uint8_t lc = a.color >= 0 ? static_cast<uint8_t>(a.color) : S.note_bg;
       for (int y = 0; y < p.ph; y++)
         if (!p.fine || (y / 6) % 2 == 0) {
