@@ -335,8 +335,8 @@ struct Parser {
       const Json &v = kv.second;
       const std::string kp = path + "." + k;
       auto color = [&](int &c) { if (!parse_color(v, c)) err(kp, "unknown color; use a name like \"yellow\" or 0..15"); };
-      auto number = [&](int &n, int lo, int hi) {
-        if (!v.is_num() || v.n < lo || v.n > hi) err(kp, "wants " + std::to_string(lo) + ".." + std::to_string(hi));
+      auto number = [&](int &n, int least, int most) {
+        if (!v.is_num() || v.n < least || v.n > most) err(kp, "wants " + std::to_string(least) + ".." + std::to_string(most));
         else n = static_cast<int>(v.n);
       };
       if (in(SHAPE_KINDS, k)) continue;
@@ -423,7 +423,7 @@ struct Parser {
             if (const Json *t = e.get("text")) fe.text = t->str_or("");
             if (const Json *c = e.get("color") ? e.get("color") : e.get("colour"))
               if (!parse_color(*c, fe.color)) err(ep + ".color", "unknown color; use a name like \"yellow\" or 0..15");
-            if (const Json *d = e.get("dash")) fe.dash = d->is_bool() ? d->b : true;
+            if (const Json *dash = e.get("dash")) fe.dash = dash->is_bool() ? dash->b : true;
           } else { err(ep, "an edge is [\"from\", \"to\"], [\"from\", \"to\", \"label\"] or {\"from\", \"to\", \"text\", \"color\", \"dash\"}"); continue; }
           fe.from = find(from, ep);
           fe.to = find(to, ep);

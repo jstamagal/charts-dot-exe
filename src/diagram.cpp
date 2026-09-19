@@ -429,11 +429,11 @@ void draw_flow(Scene &sc, Rect r, const Flow &f, uint8_t bg) {
       // side by side at the same step: straight from the edge of one box to the edge of the other
       auto centre = [&](const Placed &p) { return P(p.r.x + p.r.w / 2.0, p.r.y + p.r.h / 2.0); };
       auto rim = [&](const Placed &p, Pt toward) {
-        Pt c = centre(p);
-        double dx = toward.x - c.x, dy = toward.y - c.y;
+        Pt mid = centre(p);
+        double dx = toward.x - mid.x, dy = toward.y - mid.y;
         double hx = p.r.w * sx / 2 + (fine ? 3 : 1), hy = p.r.h * sy / 2 + (fine ? 3 : 1);
         double t = 1.0 / std::max(std::fabs(dx) / hx, std::fabs(dy) / hy);
-        return Pt{c.x + dx * t, c.y + dy * t};
+        return Pt{mid.x + dx * t, mid.y + dy * t};
       };
       Pt ca = centre(a), cb = centre(b);
       path = {rim(a, cb), rim(b, ca)};
