@@ -15,11 +15,14 @@ static const char *kVersion = "2.0.0";
 
 void print_version(FILE *f) { std::fprintf(f, "charts %s\n", kVersion); }
 
+// One line per type, in the order type_names() gives; a type without a line
+// here still gets listed.
 void print_types(FILE *f) {
   static const char *rows[][2] = {
       {"bar", "vertical bars, side by side per series; extruded unless --depth 0"},
       {"stacked", "bars stacked into a total per category"},
       {"hbar", "horizontal bars, names down the left: best for long labels and rankings"},
+      {"dumbbell", "before -> after: a dot per series on each row, an arrow to the last"},
       {"line", "one line per series, a different marker each"},
       {"area", "line with a dithered fill underneath"},
       {"pie", "flat pie: one series -> a slice per row; several -> a slice per series"},
@@ -29,7 +32,12 @@ void print_types(FILE *f) {
       {"hist", "histogram of the first series, --bins N buckets"},
       {"table", "the numbers as a grid"},
   };
-  for (const auto &r : rows) std::fprintf(f, "%-9s %s\n", r[0], r[1]);
+  for (const auto &t : type_names()) {
+    const char *what = "";
+    for (const auto &r : rows)
+      if (t == r[0]) what = r[1];
+    std::fprintf(f, "%-9s %s\n", t.c_str(), what);
+  }
 }
 
 void print_palettes(FILE *f) {

@@ -260,6 +260,16 @@ has "error bars: series_col keeps the error columns" "$TMP/errd.out" "3 rows x 3
 "$BIN" "$TMP/err.json" --print --slide 1 -w 60 -H 16 --no-color > "$TMP/errone.out" 2>&1
 if cmp -s "$TMP/errnone.out" "$TMP/errone.out"; then bad "error bars: whiskers change the picture"; else ok "error bars: whiskers change the picture"; fi
 
+echo "== dumbbell: before and after"
+printf 'k,before,after\nCRRC,57.6,63.1\nRRCC,56.5,62.0\nlocal,115.3,115.3\n' > "$TMP/db.csv"
+"$BIN" --list-types | grep -q dumbbell; check "dumbbell is a type" "$?" "0"
+"$BIN" "$TMP/db.csv" -t dumbbell --values --print -w 80 -H 12 --no-color > "$TMP/db.out" 2>&1; check "dumbbell: exit 0" "$?" "0"
+has "dumbbell: values as the file wrote them" "$TMP/db.out" "62.0"
+has "dumbbell: category labels" "$TMP/db.out" "RRCC"
+check "dumbbell: one label where the dots coincide" "$(grep -o '115.3' "$TMP/db.out" | wc -l | tr -d ' ')" "1"
+"$BIN" "$TMP/db.csv" -t before_after --png "$TMP/db.png" > /dev/null 2>&1; check "dumbbell: before_after is an alias" "$?" "0"
+"$BIN" "$TMP/db.csv" --series-col 2 -t dumbbell --values --png "$TMP/db1.png" > /dev/null 2>&1; check "dumbbell: one series is fine" "$?" "0"
+
 echo "== a data file that says how it wants to be drawn"
 printf '#chart: type=pie3d, title="Disk use", values\nname,gb\nroot,40\nhome,120\nvar,15\n' > "$TMP/spec.csv"
 "$BIN" --describe "$TMP/spec.csv" > "$TMP/spec.txt" 2>&1; check "#chart: csv describes" "$?" "0"

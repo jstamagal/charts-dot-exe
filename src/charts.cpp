@@ -38,7 +38,7 @@ static const std::vector<Pal> &pals() {
 }
 
 std::vector<std::string> type_names() {
-  return {"bar", "stacked", "hbar", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table"};
+  return {"bar", "stacked", "hbar", "dumbbell", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table"};
 }
 
 std::string type_canonical(const std::string &t) {
@@ -50,6 +50,7 @@ std::string type_canonical(const std::string &t) {
   if (s == "doughnut" || s == "ring") return "donut";
   if (s == "stack" || s == "stackedbar") return "stacked";
   if (s == "barh" || s == "horizontal") return "hbar";
+  if (s == "dumbbells" || s == "before_after" || s == "beforeafter" || s == "change" || s == "dots") return "dumbbell";
   return s;
 }
 
@@ -559,6 +560,13 @@ double cell_at(const Dataset &ds, std::size_t s, std::size_t i) {
   return i < ds.series[s].v.size() ? ds.series[s].v[i] : std::nan("");
 }
 
+// A value label: prec when the chart sets it, else as many decimals as the
+// file wrote (so 62.0 stands beside 63.1, not 62), else the automatic form.
+std::string fmt_point(const Series &se, double v, int prec) {
+  if (prec < 0 && se.decimals >= 0 && se.decimals <= 3) prec = se.decimals;
+  return fmt_val(v, prec);
+}
+
 Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, bool stacked, bool tight) {
   std::size_t n = ds.nrows();
   std::size_t ns = ds.series.size();
@@ -649,7 +657,7 @@ Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, b
           bottom = std::max(bottom, std::max(wa, wb));
         }
         if (o.values) {
-          std::string lab = fmt_val(v, o.prec);
+          std::string lab = fmt_point(ds.series[s], v, o.prec);
           if (static_cast<int>(cp_len(lab)) * p.sx <= bar_w + (ns == 1 ? slot - group : 0) + (p.fine ? 2 : 0)) {
             double ly = v >= 0 ? std::min(yv - d.dy, top) - p.sy * 0.6 : bottom + p.sy * 0.6;
             p.label((x0 + x1) / 2 + d.dx / 2, ly, lab, S.value);
@@ -791,7 +799,7 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
         reach = std::max(reach, std::max(wa, wb) + (p.fine ? 6 : 1));
       }
       if (o.values) {
-        std::string vl = fmt_val(v, o.prec);
+        std::string vl = fmt_point(ds.series[s], v, o.prec);
         double tx = p.cellx(reach) + 0.6, ty = p.celly((y0 + y1) / 2 - dy / 2) - 0.5;
         if (!p.fine) { tx = std::ceil(tx); ty = std::floor(ty + 0.5); }
         if (tx + cp_len(vl) <= clip.right() + 1) sc.text(tx, ty, vl, S.value);
@@ -799,6 +807,125 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
     }
   }
   if (lo > 0) axis_break(p, true);
+  return p;
+}
+
+// ---- dumbbell ------------------------------------------------------------------
+
+// Before and after: a row per category, a dot per series, joined by a line
+// with an arrowhead on the last series so the direction of change reads at a
+// glance.  Positions, not lengths, so the axis need not start at zero.
+Plot draw_dumbbell(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
+  Plot p;
+  p.sc = &sc;
+  p.clip = clip;
+  p.fine = sc.mode().pixel;
+  p.sx = sc.mode().sx();
+  p.sy = sc.mode().sy();
+  const std::size_t n = ds.nrows(), ns = ds.series.size();
+  if (n == 0 || ns == 0) return p;
+
+  double lo = 0, hi = 0;
+  ds.bounds(lo, hi);
+  double pad = std::max((hi - lo) * 0.06, std::fabs(hi) * 1e-3 + 1e-9);
+  lo -= pad;
+  hi += pad;
+  if (lo < 0 && !ds.has_negative()) lo = 0;
+  if (o.has_lo) lo = o.lo;
+  if (o.has_hi) hi = o.hi;
+
+  std::size_t labw = 0;
+  for (std::size_t i = 0; i < n; i++) labw = std::max(labw, cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1)));
+  int gut = std::min(static_cast<int>(labw) + 1, std::max(4, r.w / 3));
+  if (static_cast<int>(labw) + 1 > gut)
+    sc.fit_note("category labels are cut to " + std::to_string(gut - 1) + " characters (the longest is " +
+                std::to_string(labw) + ")");
+  const int gx = r.x + gut + 1, gw = std::max(1, r.right() - gx + 1 - 2);
+  const int gy = r.y, gh = std::max(1, r.h - 2 - (o.xlabel.empty() ? 0 : 1));
+  std::vector<double> ticks = nice_range(lo, hi, std::max(3, std::min(8, gw / 10)), o.has_lo, o.has_hi);
+  p.lo = lo;
+  p.hi = hi;
+  p.cells = Rect{gx - 1, gy, gw + 1, gh + 1};
+  p.sf = &sc.surface(p.cells);
+  p.ox = p.sx;
+  p.pw = gw * p.sx;
+  p.ph = gh * p.sy;
+  Surface &sf = *p.sf;
+  auto X = [&](double v) { return p.ox + std::max(0.0, std::min(1.0, (v - lo) / (hi - lo))) * (p.pw - 1); };
+
+  if (p.fine) sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
+  else sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
+  for (double t : ticks) {
+    double x = X(t);
+    std::string lab = fmt_axis(t);
+    if (p.fine) {
+      sf.vline(static_cast<int>(x), p.ph + 1, p.ph + 3, Ink(S.axis));
+      if (o.grid) sf.dotted_v(static_cast<int>(x), 0, p.ph - 1, Ink(S.grid), 4);
+    } else {
+      sc.cv.put(static_cast<int>(p.cellx(x)), gy + gh, G.tt, S.axis);
+      if (o.grid) sc.cv.vline(static_cast<int>(p.cellx(x)), gy, gh, G.dot, S.grid);
+    }
+    double tx = p.cellx(x) - cp_len(lab) / 2.0;
+    if (!p.fine) tx = std::floor(tx + 0.5);
+    tx = std::max<double>(r.x, std::min<double>(tx, r.right() + 1 - static_cast<double>(cp_len(lab))));
+    sc.text(tx, p.fine ? gy + gh + 0.45 : gy + gh + 1, lab, S.tick);
+  }
+  if (!o.xlabel.empty()) sc.cv.text_c(gx, r.bottom(), gw, o.xlabel, S.xlabel);
+
+  const double slot = static_cast<double>(p.ph) / n;
+  const double rad = p.fine ? std::max(3.0, std::min(7.0, slot * 0.22)) : 1;
+  const Ink bar(p.fine ? 7 : 8);
+  for (std::size_t i = 0; i < n; i++) {
+    const double cy = std::floor(i * slot + slot / 2);
+    std::string lab = trunc_to(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1), static_cast<std::size_t>(gut - 1));
+    double ly = p.celly(cy) - 0.5;
+    if (!p.fine) ly = std::floor(ly + 0.5);
+    sc.text(r.x + gut - 1 - static_cast<int>(cp_len(lab)), std::min<double>(ly, gy + gh - 1), lab, S.label);
+
+    // the span, then the arrowhead where the change ends up
+    double first = std::nan(""), last = std::nan(""), a = 1e300, b = -1e300;
+    for (std::size_t s = 0; s < ns; s++) {
+      double v = cell_at(ds, s, i);
+      if (!std::isfinite(v)) continue;
+      if (std::isnan(first)) first = v;
+      last = v;
+      a = std::min(a, X(v));
+      b = std::max(b, X(v));
+    }
+    if (std::isnan(first)) continue;
+    if (b > a) sf.line(a, cy, b, cy, bar, p.fine ? 3 : 1);
+    const double x0 = X(first), x1 = X(last), dir = x1 > x0 ? 1 : -1;
+    const double head = p.fine ? rad + 7 : 2;
+    if (p.fine && std::fabs(x1 - x0) > rad * 2 + head) {
+      double tip = x1 - dir * (rad + 1);
+      sf.poly({{tip, cy}, {tip - dir * 8, cy - 5}, {tip - dir * 8, cy + 5}}, bar);
+    }
+    for (std::size_t s = 0; s < ns; s++) {
+      double v = cell_at(ds, s, i);
+      if (!std::isfinite(v)) continue;
+      double x = X(v);
+      uint8_t c = static_cast<uint8_t>(ds.series[s].color);
+      if (p.fine) {
+        sf.marker(x, cy, static_cast<int>(s), rad + 1.5, Ink(panel_color()));
+        sf.marker(x, cy, static_cast<int>(s), rad, Ink(c));
+      } else {
+        sf.rect(x - 1, cy, x + 1, cy + 1, Ink(c));
+      }
+      p.remember(static_cast<int>(s), static_cast<int>(i), x, cy, 0.0);
+      if (!o.values || (b - a < 1 && std::isfinite(v) && v != last)) continue; // one label where they coincide
+      // the outermost dots label outwards; any in between, above
+      std::string vl = fmt_point(ds.series[s], v, o.prec);
+      const double len = static_cast<double>(cp_len(vl));
+      double tx, ty = p.celly(cy) - 0.5;
+      if (x <= a + 0.5 && ns > 1 && b > a) tx = p.cellx(x - rad) - len - 0.6;
+      else if (x >= b - 0.5) tx = p.cellx(x + rad) + 0.6;
+      else { tx = p.cellx(x) - len / 2; ty = p.celly(cy - rad) - 1.2; }
+      if (!p.fine) { tx = std::floor(tx + 0.5); ty = std::floor(ty + 0.5); }
+      tx = std::max<double>(clip.x, std::min<double>(tx, clip.right() + 1 - len));
+      sc.text(tx, ty, vl, ns == 1 ? S.value : c);
+      p.taken.push_back(Box{tx, ty, len, 1});
+    }
+  }
   return p;
 }
 
@@ -871,7 +998,7 @@ Plot draw_lines(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, 
         }
         p.remember(static_cast<int>(s), idx[k], pts[k].x, pts[k].y);
         if (o.values && (ds.series.size() == 1 || n <= 8))
-          p.label(pts[k].x, pts[k].y - p.sy * 0.75 - mr, fmt_val(cell_at(ds, s, static_cast<std::size_t>(idx[k])), o.prec),
+          p.label(pts[k].x, pts[k].y - p.sy * 0.75 - mr, fmt_point(se, cell_at(ds, s, static_cast<std::size_t>(idx[k])), o.prec),
                   ds.series.size() == 1 ? S.value : c);
       }
     }
@@ -1615,6 +1742,7 @@ void render_chart(Scene &sc, Rect r, Dataset &data, const RenderOpts &opts) {
   Plot p;
   if (type == "stacked") p = draw_bars(sc, inner, clip, ds, o, true, false);
   else if (type == "hbar") p = draw_hbars(sc, inner, clip, ds, o);
+  else if (type == "dumbbell") p = draw_dumbbell(sc, inner, clip, ds, o);
   else if (type == "line") p = draw_lines(sc, inner, clip, ds, o, false);
   else if (type == "area") p = draw_lines(sc, inner, clip, ds, o, true);
   else if (type == "scatter") p = draw_scatter(sc, inner, clip, ds, o);
