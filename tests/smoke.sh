@@ -182,6 +182,32 @@ printf 'k,v\r\na,1\r\nb,2\r\n' > "$TMP/crlf.csv"
 "$BIN" --describe "$TMP/crlf.csv" | grep -q "^rows:    2"
 check "CRLF line ends" "$?" "0"
 
+echo "== series_col counts the labels, and says so when it misses"
+printf 'layout,tg,pp,note\nCCRR,39.4,1236,slow\nCRRC,57.6,1124,fast\n' > "$TMP/cols.csv"
+"$BIN" "$TMP/cols.csv" --series-col 1 --png "$TMP/c.png" > "$TMP/sc1.out" 2>&1; check "series_col on the labels: exit 1" "$?" "1"
+has "series_col on the labels: named" "$TMP/sc1.out" 'series_col 1 is "layout", the label column'
+has "series_col on the labels: lists the series" "$TMP/sc1.out" '2 "tg", 3 "pp"'
+"$BIN" "$TMP/cols.csv" --series-col 4 --png "$TMP/c.png" > "$TMP/sc4.out" 2>&1; check "series_col on text: exit 1" "$?" "1"
+has "series_col on text: named" "$TMP/sc4.out" '"note", which is not numbers'
+"$BIN" "$TMP/cols.csv" --series-col 9 --png "$TMP/c.png" > "$TMP/sc9.out" 2>&1
+has "series_col past the end: named" "$TMP/sc9.out" "past the last column (there are 4)"
+"$BIN" "$TMP/cols.csv" --series-col 3 --describe > "$TMP/sc3.out" 2>&1
+has "series_col 3 keeps pp" "$TMP/sc3.out" "col 3  pp"
+hasnt "series_col 3 drops tg" "$TMP/sc3.out" "col 2"
+has "describe names the label column" "$TMP/sc3.out" 'column 1 "layout"'
+printf '{"labels":["a","b"],"series":[{"name":"p","values":[1,2]},{"name":"q","values":[3,null]}]}' > "$TMP/cols.json"
+"$BIN" "$TMP/cols.json" --series-col 3 --describe > "$TMP/scj.out" 2>&1
+has "json: series_col is honoured" "$TMP/scj.out" "series:  1"
+has "json: the same column numbers" "$TMP/scj.out" "col 3  q"
+has "describe counts gaps, not blanks" "$TMP/scj.out" "n=1    min=3"
+has "describe reports the gaps" "$TMP/scj.out" "gaps=1"
+"$BIN" "$TMP/cols.json" --series-col 1 --describe > "$TMP/scj1.out" 2>&1; check "json: series_col on the labels: exit 1" "$?" "1"
+has "json: series_col on the labels: named" "$TMP/scj1.out" 'series_col 1 is the labels'
+printf 'x,y\n1,2\n2,4\n3,5\n' > "$TMP/xyd.csv"
+"$BIN" "$TMP/xyd.csv" --xy --describe > "$TMP/xyd.out" 2>&1
+hasnt "describe hides the internal X name" "$TMP/xyd.out" $'\x01'
+has "describe calls the X column the X axis" "$TMP/xyd.out" "x (X axis)"
+
 echo "== a data file that says how it wants to be drawn"
 printf '#chart: type=pie3d, title="Disk use", values\nname,gb\nroot,40\nhome,120\nvar,15\n' > "$TMP/spec.csv"
 "$BIN" --describe "$TMP/spec.csv" > "$TMP/spec.txt" 2>&1; check "#chart: csv describes" "$?" "0"

@@ -657,6 +657,9 @@ void store_block_data(Deck &d, Block &b) {
   } else {
     Json *n = d.node(b.path);
     if (!n || !n->is_obj()) throw std::runtime_error("the block is gone from the deck");
+    // Inline data read through series_col is a part of what the deck holds;
+    // writing it back would throw the rest away.
+    if (b.ds.lossy) throw std::runtime_error("not saving the inline data: " + b.ds.lossy_why);
     Json fresh = dataset_to_json(b.ds);
     if (const Json *old = n->get("data"))
       if (old->is_obj())

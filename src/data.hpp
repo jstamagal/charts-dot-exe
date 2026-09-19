@@ -14,6 +14,7 @@ struct Series {
   std::string name;
   std::vector<double> v;
   int color = 7; // assigned by the chart renderer
+  int col = 0;   // column in the source, counted from 1 with the labels: what series_col takes
 };
 
 struct Dataset {
@@ -21,6 +22,7 @@ struct Dataset {
   std::string source;
   std::vector<std::string> labels; // x categories (may be row numbers)
   std::string label_name;          // header of the label column, for writing back
+  int label_col = 0;               // which column that was, from 1; 0 = none or not known
   std::string x_name = "x";        // header of the X column under xy
   // The loader threw something away (a text column, a transpose, a series
   // filter), so writing this dataset over its file would lose data.
@@ -64,6 +66,11 @@ Dataset load_path(const std::string &path, const LoadOpts &o);
 Dataset load_csv(const std::string &text, const LoadOpts &o);
 Dataset from_json(const std::string &text, const LoadOpts &o);
 Dataset from_json_value(const Json &j, const LoadOpts &o);
+
+// Number the series the way series_col counts (the labels are column 1) and,
+// when series_col is set, keep only that one.  Throws naming what is there
+// when it points at nothing drawable.  The CSV loader does its own.
+void number_series(Dataset &ds, int series_col);
 
 // ---- writing back ----------------------------------------------------------
 // The leading '#' lines of `original` (comments, #chart directives) are kept.

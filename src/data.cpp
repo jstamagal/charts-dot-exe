@@ -339,12 +339,33 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
 
   ds.had_header = header;
   if (lc >= 0 && header) ds.label_name = hdr[static_cast<std::size_t>(lc)];
+  ds.label_col = lc + 1;
   if (xc >= 0) ds.x_name = hdr[static_cast<std::size_t>(xc)];
   auto lose = [&](const std::string &why) {
     if (!ds.lossy) ds.lossy_why = why;
     ds.lossy = true;
   };
   if (opts.transpose) lose("the file is read transposed");
+
+  // series_col counts every column, the labels included.  Landing on one that
+  // cannot be drawn would otherwise surface as "no numeric columns".
+  if (opts.series_col >= 0) {
+    const int sc = opts.series_col;
+    std::string what;
+    if (sc >= static_cast<int>(cols)) what = "is past the last column (there are " + std::to_string(cols) + ")";
+    else if (sc == lc) what = "is \"" + hdr[static_cast<std::size_t>(sc)] + "\", the label column";
+    else if (sc == xc) what = "is \"" + hdr[static_cast<std::size_t>(sc)] + "\", the X axis under xy";
+    else if (!numeric[static_cast<std::size_t>(sc)]) what = "is \"" + hdr[static_cast<std::size_t>(sc)] + "\", which is not numbers";
+    if (!what.empty()) {
+      std::string avail;
+      for (std::size_t c = 0; c < cols; c++)
+        if (static_cast<int>(c) != lc && static_cast<int>(c) != xc && numeric[c])
+          avail += (avail.empty() ? "" : ", ") + std::to_string(c + 1) + " \"" + hdr[c] + "\"";
+      throw std::runtime_error("series_col " + std::to_string(sc + 1) + " " + what +
+                               "; columns count from 1 with the labels included" +
+                               (avail.empty() ? "" : ", so the series are " + avail));
+    }
+  }
 
   // series
   for (std::size_t c = 0; c < cols; c++) {
@@ -357,6 +378,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
     if (opts.series_col >= 0 && ci != opts.series_col) { lose("series_col hides the other columns"); continue; }
     Series s;
     s.name = hdr[c];
+    s.col = ci + 1;
     s.v.reserve(ndata);
     for (std::size_t r = first; r < t.rows.size(); r++) {
       double d = std::nan("");
@@ -372,6 +394,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
   if (xc >= 0) {
     Series xs;
     xs.name = "\x01x";
+    xs.col = xc + 1;
     for (std::size_t r = first; r < t.rows.size(); r++) {
       double d = std::nan("");
       std::string f = trim(t.rows[r][static_cast<std::size_t>(xc)]);
@@ -564,12 +587,36 @@ void save_dataset(const Dataset &ds, const std::string &path) {
   }
 }
 
+void number_series(Dataset &ds, int series_col) {
+  std::string avail;
+  int col = 2;
+  for (auto &s : ds.series) {
+    if (is_x(s)) continue;
+    s.col = col++;
+    avail += (avail.empty() ? "" : ", ") + std::to_string(s.col) + " \"" + s.name + "\"";
+  }
+  if (series_col < 0) return;
+  const int want = series_col + 1;
+  auto keep = std::find_if(ds.series.begin(), ds.series.end(), [&](const Series &s) { return !is_x(s) && s.col == want; });
+  if (keep == ds.series.end())
+    throw std::runtime_error("series_col " + std::to_string(want) +
+                             (want == 1 ? " is the labels" : " is past the last series") +
+                             "; columns count from 1 with the labels included, so the series are " + avail);
+  ds.series.erase(std::remove_if(ds.series.begin(), ds.series.end(),
+                                 [&](const Series &s) { return !is_x(s) && s.col != want; }),
+                  ds.series.end());
+  ds.lossy = true;
+  ds.lossy_why = "series_col hides the other columns";
+}
+
 std::string describe(const Dataset &ds) {
   std::ostringstream o;
   o << "source:  " << ds.source << "\n";
   if (!ds.title.empty()) o << "title:   " << ds.title << "\n";
   o << "rows:    " << ds.nrows() << "\n";
-  o << "labels:  " << ds.labels.size() << "\n";
+  o << "labels:  " << ds.labels.size();
+  if (ds.label_col > 0) o << ", column " << ds.label_col << (ds.label_name.empty() ? "" : " \"" + ds.label_name + "\"");
+  o << "\n";
   o << "series:  " << ds.series.size() << "\n";
 
   // What the file itself asked for, so it is obvious where a setting came from.
@@ -612,20 +659,24 @@ std::string describe(const Dataset &ds) {
     o << "chart:   (none in the file; a bare 'charts file' uses the defaults)\n";
   }
 
+  // The column numbers are the ones series_col and labels_col take.
   for (std::size_t i = 0; i < ds.series.size(); i++) {
     const Series &s = ds.series[i];
     double lo = 0, hi = 0;
-    bool any = false;
+    std::size_t n = 0;
     for (double v : s.v) {
       if (!std::isfinite(v)) continue;
-      if (!any) { lo = hi = v; any = true; }
+      if (!n++) lo = hi = v;
       else { lo = std::min(lo, v); hi = std::max(hi, v); }
     }
-    char buf[128];
-    std::snprintf(buf, sizeof buf, "  [%zu] %-16s n=%-4zu min=%-12s max=%-12s sum=%s",
-                  i, s.name.c_str(), s.v.size(), fmt_val(lo).c_str(), fmt_val(hi).c_str(),
-                  fmt_val(ds.sum(i)).c_str());
-    o << buf << "\n";
+    std::string col = s.col > 0 ? "col " + std::to_string(s.col) : "[" + std::to_string(i) + "]";
+    std::string name = is_x(s) ? ds.x_name + " (X axis)" : s.name;
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "  %-6s %-16s n=%-4zu min=%-12s max=%-12s sum=%s", col.c_str(), name.c_str(), n,
+                  fmt_val(lo).c_str(), fmt_val(hi).c_str(), fmt_val(ds.sum(i)).c_str());
+    o << buf;
+    if (n < s.v.size()) o << "  gaps=" << s.v.size() - n;
+    o << "\n";
   }
   if (!ds.labels.empty()) {
     o << "first labels: ";
