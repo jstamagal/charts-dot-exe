@@ -76,6 +76,11 @@ lines (`a`), add text and slides (`i`, `N`), change chart types (`t`) and save
 annotations and text go into the deck JSON. Re-read the deck before editing it
 again.
 
+A deck's data paths are resolved against the deck's own directory, and may be
+absolute or climb out with `../`: charts reads whatever file a deck names, and
+the sheet writes edits back to it. Treat a deck from somewhere else like any
+other script you did not write: look at its `data` paths before opening it.
+
 ## Environment
 
 | | |
