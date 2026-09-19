@@ -99,4 +99,5 @@ gallery: all
 skill: all gallery
 	@{ cat skill/charts/frontmatter.md; echo '```text'; ./$(BIN) -h; echo '```'; } > skill/charts/SKILL.md
 	@cp docs/DECK.md skill/charts/references/deck-format.md
-	@echo "skill/charts: SKILL.md from charts -h, references/deck-format.md from docs/DECK.md"
+	@cp examples/demo/* skill/charts/assets/example-deck/
+	@echo "skill/charts: SKILL.md from charts -h, deck-format.md from docs/DECK.md, example-deck from examples/demo"

@@ -40,7 +40,7 @@
         {"type": "line", "data": "signups.csv", "title": "line"},
         {"type": "area", "data": "signups.csv", "title": "area"},
         {"type": "bar", "data": "signups.csv", "title": "bar", "depth": 1},
-        {"type": "table", "data": "signups.csv", "title": "table"}
+        {"type": "stacked", "data": "signups.csv", "title": "stacked"}
       ]
     }
   ]
