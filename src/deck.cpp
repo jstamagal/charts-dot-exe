@@ -75,6 +75,12 @@ const std::vector<std::string> PLACE_KEYS = {"at", "weight"};
 const std::vector<std::string> CHART_KEYS = {"data"};
 const std::vector<std::string> TEXT_KEYS = {"text", "bullets", "title", "size", "align", "valign", "color", "colour", "box"};
 const std::vector<std::string> STAT_KEYS = {"stat", "label", "delta", "color", "colour", "title"};
+const std::vector<std::string> SHAPES_KEYS = {"shapes", "title", "box"};
+const std::vector<std::string> FLOW_KEYS = {"flow", "edges", "labels", "dir", "title", "box"};
+const std::vector<std::string> SHAPE_KINDS = {"rect", "ellipse", "poly", "line", "arrow", "label"};
+const std::vector<std::string> SHAPE_KEYS = {"rect",  "ellipse", "poly",  "line", "arrow", "label",  "text",   "color",
+                                             "colour", "text_color", "border", "dither", "depth", "width", "size",
+                                             "align", "shadow", "fill", "dash", "head"};
 const std::vector<std::string> LAYOUTS = {"auto", "cols", "rows", "grid"};
 
 bool private_key(const std::string &k) {
@@ -250,6 +256,186 @@ struct Parser {
     return true;
   }
 
+  // ---- shapes and flows
+
+  bool point(const Json &v, Pt &out) {
+    if (!v.is_arr() || v.a.size() != 2 || !v.a[0].is_num() || !v.a[1].is_num()) return false;
+    out = Pt{v.a[0].n, v.a[1].n};
+    return true;
+  }
+
+  void shape(const Json &j, const std::string &path, std::vector<Shape> &out) {
+    if (!j.is_obj()) { err(path, "a shape must be an object like {\"rect\": [1, 1, 4, 2], \"text\": \"...\"}"); return; }
+    Shape s;
+    std::string kind;
+    for (const auto &k : SHAPE_KINDS)
+      if (j.get(k)) {
+        if (!kind.empty()) { err(path, "one shape, one of " + join(SHAPE_KINDS, " / ") + ": this has both " + kind + " and " + k); return; }
+        kind = k;
+      }
+    if (kind.empty()) {
+      err(path, "a shape needs one of: " + join(SHAPE_KINDS, ", ") + " (rect/ellipse [x, y, w, h], poly/line/arrow [[x, y], ...], label [x, y])");
+      return;
+    }
+    const Json &g = *j.get(kind);
+    const std::string gp = path + "." + kind;
+    if (kind == "rect" || kind == "ellipse") {
+      s.kind = kind == "rect" ? Shape::RECT : Shape::ELLIPSE;
+      bool good = g.is_arr() && g.a.size() == 4;
+      for (std::size_t i = 0; good && i < 4; i++) good = g.a[i].is_num();
+      if (!good || g.a[2].n <= 0 || g.a[3].n <= 0) { err(gp, "wants [x, y, w, h] on the block's 12 x 12 grid, w and h above 0"); return; }
+      s.pts = {{g.a[0].n, g.a[1].n}, {g.a[0].n + g.a[2].n, g.a[1].n + g.a[3].n}};
+    } else if (kind == "label") {
+      s.kind = Shape::LABEL;
+      Pt p;
+      if (!point(g, p)) { err(gp, "wants [x, y]: where the text starts, on the block's 12 x 12 grid"); return; }
+      s.pts = {p};
+    } else {
+      s.kind = kind == "poly" ? Shape::POLY : Shape::LINE;
+      const std::size_t least = kind == "poly" ? 3 : 2;
+      bool good = g.is_arr() && g.a.size() >= least;
+      for (std::size_t i = 0; good && i < g.a.size(); i++) {
+        Pt p;
+        good = point(g.a[i], p);
+        s.pts.push_back(p);
+      }
+      if (!good) { err(gp, "wants at least " + std::to_string(least) + " points: [[x, y], [x, y], ...]"); return; }
+      s.head = kind == "arrow";
+    }
+    for (const Pt &p : s.pts)
+      if (p.x < -0.001 || p.y < -0.001 || p.x > 12.001 || p.y > 12.001) {
+        warn(gp, "reaches outside the block's 12 x 12 grid and is cut off there");
+        break;
+      }
+    for (const auto &kv : j.o) {
+      const std::string &k = kv.first;
+      const Json &v = kv.second;
+      const std::string kp = path + "." + k;
+      auto color = [&](int &c) { if (!parse_color(v, c)) err(kp, "unknown color; use a name like \"yellow\" or 0..15"); };
+      auto number = [&](int &n, int lo, int hi) {
+        if (!v.is_num() || v.n < lo || v.n > hi) err(kp, "wants " + std::to_string(lo) + ".." + std::to_string(hi));
+        else n = static_cast<int>(v.n);
+      };
+      if (in(SHAPE_KINDS, k)) continue;
+      if (k == "text") s.text = v.is_str() ? v.s : (v.is_arr() ? [&] {
+        std::vector<std::string> l;
+        for (const auto &e : v.a) l.push_back(e.str_or(""));
+        return join(l, "\n");
+      }() : v.str_or(""));
+      else if (k == "color" || k == "colour") color(s.color);
+      else if (k == "text_color") color(s.text_color);
+      else if (k == "border") { if (!(v.is_str() && lower(v.s) == "none")) color(s.border); }
+      else if (k == "dither") number(s.dither, 0, 3);
+      else if (k == "depth") number(s.depth, 0, 6);
+      else if (k == "width") number(s.width, 1, 4);
+      else if (k == "size") number(s.size, 1, 3);
+      else if (k == "shadow") s.shadow = v.is_bool() ? v.b : true;
+      else if (k == "fill") s.fill = v.is_bool() ? v.b : !(v.is_str() && lower(v.s) == "none");
+      else if (k == "dash") s.dash = v.is_bool() ? v.b : true;
+      else if (k == "align") {
+        std::string a = lower(v.str_or(""));
+        if (a == "left") s.align = -1;
+        else if (a == "center" || a == "centre") s.align = 0;
+        else if (a == "right") s.align = 1;
+        else err(kp, "wants \"left\", \"center\" or \"right\"");
+      } else if (k == "head") {
+        std::string h = lower(v.str_or(v.is_bool() ? (v.b ? "end" : "none") : ""));
+        if (h == "end") { s.head = true; s.tail = false; }
+        else if (h == "start") { s.head = false; s.tail = true; }
+        else if (h == "both") s.head = s.tail = true;
+        else if (h == "none") s.head = s.tail = false;
+        else err(kp, "wants \"end\", \"start\", \"both\" or \"none\"");
+      } else unknown_key(path, k, SHAPE_KEYS, false);
+    }
+    if (s.kind == Shape::LABEL && s.text.empty()) warn(path, "a label with no \"text\" draws nothing");
+    out.push_back(s);
+  }
+
+  void flow(const Json &j, const std::string &path, Flow &f) {
+    const Json &nodes = *j.get("flow");
+    if (!nodes.is_arr() || nodes.a.empty()) { err(path + ".flow", "wants the steps: [\"read\", \"think\", {\"id\": \"out\", \"text\": \"write\\nit\", \"color\": \"green\"}]"); return; }
+    std::vector<std::string> ids;
+    for (std::size_t i = 0; i < nodes.a.size(); i++) {
+      const Json &e = nodes.a[i];
+      const std::string np = path + ".flow[" + std::to_string(i) + "]";
+      FlowNode node;
+      if (e.is_str() || e.is_num()) node.id = node.text = e.is_str() ? e.s : fmt_val(e.n);
+      else if (e.is_obj()) {
+        node.text = e.get("text") ? e.get("text")->str_or("") : "";
+        node.id = e.get("id") ? e.get("id")->str_or("") : node.text;
+        if (node.text.empty()) node.text = node.id;
+        if (const Json *c = e.get("color") ? e.get("color") : e.get("colour"))
+          if (!parse_color(*c, node.color)) err(np + ".color", "unknown color; use a name like \"yellow\" or 0..15");
+        for (const auto &kv : e.o)
+          if (kv.first != "id" && kv.first != "text" && kv.first != "color" && kv.first != "colour")
+            unknown_key(np, kv.first, {"id", "text", "color"}, false);
+      } else { err(np, "a step is a string, or {\"id\": ..., \"text\": ..., \"color\": ...}"); continue; }
+      if (node.id.empty()) { err(np, "a step needs a name"); continue; }
+      if (in(ids, node.id)) { err(np, "there is already a step called \"" + node.id + "\"; give one an \"id\""); continue; }
+      ids.push_back(node.id);
+      f.nodes.push_back(node);
+    }
+    auto find = [&](const std::string &id, const std::string &where) {
+      for (std::size_t i = 0; i < ids.size(); i++)
+        if (ids[i] == id) return static_cast<int>(i);
+      std::string hint = nearest(id, ids);
+      err(where, "no step called \"" + id + "\"" + (hint.empty() ? "" : " (did you mean \"" + hint + "\"?)"));
+      return -1;
+    };
+    if (const Json *edges = j.get("edges")) {
+      if (!edges->is_arr()) err(path + ".edges", "wants [[\"from\", \"to\"], [\"from\", \"to\", \"label\"], ...]");
+      else
+        for (std::size_t i = 0; i < edges->a.size(); i++) {
+          const Json &e = edges->a[i];
+          const std::string ep = path + ".edges[" + std::to_string(i) + "]";
+          FlowEdge fe;
+          std::string from, to;
+          if (e.is_arr() && (e.a.size() == 2 || e.a.size() == 3)) {
+            from = e.a[0].str_or("");
+            to = e.a[1].str_or("");
+            if (e.a.size() == 3) fe.text = e.a[2].str_or("");
+          } else if (e.is_obj()) {
+            from = e.get("from") ? e.get("from")->str_or("") : "";
+            to = e.get("to") ? e.get("to")->str_or("") : "";
+            if (const Json *t = e.get("text")) fe.text = t->str_or("");
+            if (const Json *c = e.get("color") ? e.get("color") : e.get("colour"))
+              if (!parse_color(*c, fe.color)) err(ep + ".color", "unknown color; use a name like \"yellow\" or 0..15");
+            if (const Json *d = e.get("dash")) fe.dash = d->is_bool() ? d->b : true;
+          } else { err(ep, "an edge is [\"from\", \"to\"], [\"from\", \"to\", \"label\"] or {\"from\", \"to\", \"text\", \"color\", \"dash\"}"); continue; }
+          fe.from = find(from, ep);
+          fe.to = find(to, ep);
+          if (fe.from < 0 || fe.to < 0) continue;
+          if (fe.from == fe.to) { warn(ep, "a step pointing at itself is not drawn"); continue; }
+          f.edges.push_back(fe);
+        }
+    } else {
+      // no edges: a chain, in the order the steps are listed
+      for (std::size_t i = 0; i + 1 < f.nodes.size(); i++) {
+        FlowEdge fe;
+        fe.from = static_cast<int>(i);
+        fe.to = static_cast<int>(i + 1);
+        f.edges.push_back(fe);
+      }
+    }
+    if (const Json *labels = j.get("labels")) {
+      if (!labels->is_obj()) err(path + ".labels", "wants {\"from>to\": \"label\", ...}");
+      else
+        for (const auto &kv : labels->o) {
+          std::string k = kv.first;
+          std::size_t gt = k.find("->") != std::string::npos ? k.find("->") : k.find('>');
+          const std::string lp = path + ".labels." + k;
+          if (gt == std::string::npos) { err(lp, "name an edge as \"from>to\""); continue; }
+          std::string from = trim(k.substr(0, gt)), to = trim(k.substr(gt + (k.compare(gt, 2, "->") == 0 ? 2 : 1)));
+          int a = find(from, lp), b = find(to, lp);
+          if (a < 0 || b < 0) continue;
+          bool hit = false;
+          for (auto &e : f.edges)
+            if (e.from == a && e.to == b) { e.text = kv.second.str_or(""); hit = true; }
+          if (!hit) warn(lp, "there is no arrow from \"" + from + "\" to \"" + to + "\" to label");
+        }
+    }
+  }
+
   Block block(const Json &j, const std::string &path, bool title_taken) {
     if (j.is_obj() && j.get("like")) {
       Json merged;
@@ -281,10 +467,12 @@ struct Parser {
     if (has_data) b.kind = Block::CHART;
     else if (j.get("text") || j.get("bullets")) b.kind = Block::TEXT;
     else if (j.get("stat")) b.kind = Block::STAT;
+    else if (j.get("shapes")) b.kind = Block::SHAPES;
+    else if (j.get("flow")) b.kind = Block::FLOW;
     else if (rows && rows->is_arr()) b.kind = Block::ROWS;
     else if (cols && cols->is_arr()) b.kind = Block::COLS;
     else {
-      err(path, "a block needs one of: \"data\" (chart), \"text\", \"bullets\", \"stat\", \"rows\", \"cols\"");
+      err(path, "a block needs one of: \"data\" (chart), \"text\", \"bullets\", \"stat\", \"shapes\", \"flow\", \"rows\", \"cols\"");
       b.kind = Block::TEXT;
       return b;
     }
@@ -361,6 +549,19 @@ struct Parser {
         else if (k == "color" || k == "colour") {
           if (!parse_color(v, b.color)) err(kp, "unknown color; use a name like \"yellow\" or 0..15");
         } else unknown_key(path, k, STAT_KEYS, false);
+      } else if (b.kind == Block::SHAPES || b.kind == Block::FLOW) {
+        if (k == "title") { if (!title_taken) b.title = v.str_or(""); }
+        else if (k == "box") b.box = v.is_bool() ? v.b : true;
+        else if (k == "shapes" && b.kind == Block::SHAPES) {
+          if (!v.is_arr()) { err(kp, "wants an array of shapes"); continue; }
+          for (std::size_t i = 0; i < v.a.size(); i++) shape(v.a[i], kp + "[" + std::to_string(i) + "]", b.shapes);
+        } else if (b.kind == Block::FLOW && (k == "flow" || k == "edges" || k == "labels")) {
+          if (k == "flow") flow(j, path, b.flow);
+        } else if (b.kind == Block::FLOW && k == "dir") {
+          std::string dd = lower(v.str_or(""));
+          if (dd == "down" || dd == "vertical") b.flow.down = true;
+          else if (dd != "right" && dd != "across" && dd != "horizontal") err(kp, "wants \"right\" or \"down\"");
+        } else unknown_key(path, k, b.kind == Block::SHAPES ? SHAPES_KEYS : FLOW_KEYS, false);
       } else if (k != "rows" && k != "cols") {
         unknown_key(path, k, {"rows", "cols"}, false);
       }
@@ -390,8 +591,8 @@ struct Parser {
     s.path = path;
     if (!j.is_obj()) { err(path, "a slide must be an object"); return s; }
     // A slide may be its one block: {"title":..., "type":"bar", "data":...}
-    const bool shorthand =
-        !j.get("blocks") && (j.get("data") || j.get("text") || j.get("bullets") || j.get("stat") || j.get("like"));
+    const bool shorthand = !j.get("blocks") && (j.get("data") || j.get("text") || j.get("bullets") || j.get("stat") ||
+                                                j.get("shapes") || j.get("flow") || j.get("like"));
     for (const auto &kv : j.o) {
       const std::string &k = kv.first;
       const Json &v = kv.second;
@@ -830,6 +1031,11 @@ void outline_blocks(std::ostringstream &o, const std::vector<Block> &blocks, int
       o << "\n";
       break;
     case Block::STAT: o << pad << "stat  " << b.value << "  " << b.label << "\n"; break;
+    case Block::SHAPES: o << pad << "shapes  " << b.shapes.size() << " shape" << (b.shapes.size() == 1 ? "" : "s") << "\n"; break;
+    case Block::FLOW:
+      o << pad << "flow  " << b.flow.nodes.size() << " steps, " << b.flow.edges.size() << " arrows"
+        << (b.flow.down ? ", down" : "") << "\n";
+      break;
     case Block::ROWS:
     case Block::COLS:
       o << pad << (b.kind == Block::ROWS ? "rows" : "cols") << "\n";

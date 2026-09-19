@@ -313,4 +313,33 @@ std::string clean_utf8(const std::string &s) {
 
 std::size_t cp_len(const std::string &s) { return utf8_decode(s).size(); }
 
+// ---- wrapping ----------------------------------------------------------------
+
+// Words onto lines of at most width codepoints; a word longer than that is
+// cut.  Newlines start a new line.
+std::vector<std::string> wrap_words(const std::string &s, std::size_t width) {
+  std::vector<std::string> out;
+  for (const std::string &para : split(s, '\n')) {
+    std::string line;
+    for (const std::string &word : split_any(para, " \t")) {
+      if (word.empty()) continue;
+      if (!line.empty() && cp_len(line) + 1 + cp_len(word) > width) {
+        out.push_back(line);
+        line.clear();
+      }
+      line += (line.empty() ? "" : " ") + word;
+      while (cp_len(line) > width) {
+        out.push_back(trunc_to(line, width));
+        auto cps = utf8_decode(line);
+        std::string rest;
+        for (std::size_t k = width - 1; k < cps.size(); k++) rest += u32_to_utf8(cps[k]);
+        line = rest;
+      }
+    }
+    out.push_back(line);
+  }
+  while (out.size() > 1 && out.back().empty()) out.pop_back();
+  return out;
+}
+
 } // namespace ch

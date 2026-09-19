@@ -265,6 +265,34 @@ void draw_blocks(Scene &sc, Deck &d, std::vector<Block> &blocks, const SlideView
       S.frame = frame;
       break;
     }
+    case Block::SHAPES:
+    case Block::FLOW: {
+      // on the slide itself, or in a window of its own with "box"
+      uint8_t under = S.slide_bg == BG_NONE ? 0 : S.slide_bg;
+      Rect in = r;
+      if (b.box) {
+        in.w -= shadow_w();
+        in.h -= shadow_h();
+        if (S.slide_bg != BG_NONE) {
+          sc.cv.shadow(in.x, in.y, in.w, in.h);
+          sc.panel(in, S.panel_bg);
+          under = S.panel_bg;
+        }
+        sc.cv.box(in.x, in.y, in.w, in.h, sc.mode().ascii ? BOX_ASCII : BOX_DOUBLE, &b == focus ? S.accent : S.frame);
+        if (!b.title.empty()) sc.cv.text_c(in.x + 2, in.y, in.w - 4, " " + b.title + " ", S.title);
+        in = Rect{in.x + 2, in.y + 1, in.w - 4, in.h - 2};
+      } else {
+        if (&b == focus) sc.cv.box(r.x - 1, r.y - 1, r.w + 2, r.h + 2, sc.mode().ascii ? BOX_ASCII : BOX_SINGLE, S.accent);
+        if (!b.title.empty()) {
+          sc.cv.text(r.x, r.y, trunc_to(b.title, static_cast<std::size_t>(r.w)), S.heading);
+          in.y += 2;
+          in.h -= 2;
+        }
+      }
+      if (b.kind == Block::SHAPES) draw_shapes(sc, in, b.shapes, under);
+      else draw_flow(sc, in, b.flow, under);
+      break;
+    }
     case Block::CHART: {
       r.w -= shadow_w();
       r.h -= shadow_h();

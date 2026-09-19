@@ -10,6 +10,7 @@
 
 #include "chart.hpp"
 #include "data.hpp"
+#include "diagram.hpp"
 #include "json.hpp"
 
 namespace ch {
@@ -22,7 +23,7 @@ struct Issue {
 };
 
 struct Block {
-  enum Kind { CHART, TEXT, STAT, ROWS, COLS };
+  enum Kind { CHART, TEXT, STAT, ROWS, COLS, SHAPES, FLOW };
   Kind kind = CHART;
   std::string path; // into the deck's JSON
   double weight = 1;
@@ -47,6 +48,10 @@ struct Block {
 
   // stat
   std::string value, label, delta;
+
+  // shapes / flow (title and box as for text)
+  std::vector<Shape> shapes;
+  Flow flow;
 
   std::vector<Block> kids; // ROWS / COLS
 };

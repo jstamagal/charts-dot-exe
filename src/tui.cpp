@@ -751,6 +751,8 @@ private:
     } else if (b->kind == Block::STAT) {
       std::string v = b->value;
       if (ask("big number", "Value:", v)) { b->value = v; store_block_text(deck_, *b); }
+    } else if (b->kind != Block::CHART) {
+      say("shapes and flows are edited in the deck file; the presenter redraws when it changes", false);
     } else {
       if (!b->error.empty()) { say(b->error, true); return; }
       mode_ = SHEET;

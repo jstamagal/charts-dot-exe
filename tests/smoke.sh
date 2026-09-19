@@ -658,6 +658,79 @@ printf '{"slides":[{"title":"t","type":"hbar","data":"side.csv","annotations":[{
 has "hbar: the value line is labelled" "$TMP/side.out" "target"
 has "hbar: the category line is drawn and labelled" "$TMP/side.out" "this row"
 
+echo "== flow diagrams"
+cat > "$TMP/flow.json" <<'EOF2'
+{"slides": [
+  {"title": "chain", "flow": ["read", "think", {"id": "out", "text": "write\nit", "color": "green"}], "labels": {"read>think": "8 KB"}},
+  {"title": "graph", "flow": ["a", "b", "c", "d"], "edges": [["a", "b", "left"], ["a", "c"], {"from": "b", "to": "d", "dash": true}, ["c", "d"], ["d", "a", "again"]], "dir": "down", "box": true},
+  {"title": "beside", "blocks": [{"flow": ["x", "y"], "title": "small"}, {"text": "words"}]}
+]}
+EOF2
+"$BIN" "$TMP/flow.json" --check > "$TMP/flow.chk" 2>&1; check "flow: a clean deck" "$?" "0"
+"$BIN" "$TMP/flow.json" --describe > "$TMP/flow.d" 2>&1
+has "flow: a chain is the steps in order" "$TMP/flow.d" "flow  3 steps, 2 arrows"
+has "flow: edges and direction" "$TMP/flow.d" "flow  4 steps, 5 arrows, down"
+"$BIN" "$TMP/flow.json" --print --slide 1 -w 100 -H 20 --no-color > "$TMP/flow.out" 2>&1
+has "flow: steps are framed windows" "$TMP/flow.out" "║ read ║"
+has "flow: a step's text wraps on newlines" "$TMP/flow.out" "write"
+has "flow: edge labels are drawn" "$TMP/flow.out" "8 KB"
+"$BIN" "$TMP/flow.json" --png-dir "$TMP/flowpng" > /dev/null 2>&1; check "flow: renders to png, loops and all" "$?" "0"
+for size in 20x6 40x10 200x60; do
+  "$BIN" "$TMP/flow.json" --print --slide 2 --size "$size" --no-color > /dev/null 2>&1; check "flow: survives $size" "$?" "0"
+done
+"$BIN" "$TMP/flow.json" --print --slide 2 --ascii -w 80 -H 24 > "$TMP/flowa.out" 2>&1; check "flow: ascii" "$?" "0"
+cat > "$TMP/flowbad.json" <<'EOF2'
+{"slides": [{"title": "bad", "flow": ["read", "think", "read"], "edges": [["read", "thnik"]], "labels": {"think>read": "no such arrow"}, "dir": "sideways"}]}
+EOF2
+"$BIN" "$TMP/flowbad.json" --check > "$TMP/flowbad.out" 2>&1; check "flow: bad input is an error" "$?" "1"
+has "flow: duplicate step" "$TMP/flowbad.out" 'already a step called "read"'
+has "flow: unknown step, with a did-you-mean" "$TMP/flowbad.out" 'no step called "thnik" (did you mean "think"?)'
+has "flow: a label on no arrow" "$TMP/flowbad.out" 'there is no arrow from "think" to "read"'
+has "flow: bad direction" "$TMP/flowbad.out" 'wants "right" or "down"'
+printf '{"slides":[{"title":"t","flow":["one","two","three","four","five","six","seven"]}],"display":{"size":[40,12]}}' > "$TMP/flowwide.json"
+"$BIN" "$TMP/flowwide.json" --check > "$TMP/flowwide.out" 2>&1
+has "flow: --check says when it does not fit" "$TMP/flowwide.out" 'the flow does not fit'
+
+echo "== shapes"
+cat > "$TMP/shapes.json" <<'EOF2'
+{"slides": [{"title": "every shape", "shapes": [
+  {"rect": [0.5, 1, 3, 2], "text": "window", "shadow": true},
+  {"rect": [0.5, 5, 3, 2], "text": "solid", "color": "green", "depth": 3},
+  {"ellipse": [6, 2, 4, 4], "text": "round", "color": "red", "dither": 2},
+  {"poly": [[10, 8], [11.5, 10], [8.5, 10]], "color": "cyan", "fill": false, "border": "white", "width": 2},
+  {"arrow": [[3.5, 2], [6, 3.5]], "text": "1 GbE", "width": 2},
+  {"line": [[6, 5], [5, 7], [3.5, 6]], "dash": true, "head": "both", "color": "yellow", "shadow": true},
+  {"label": [0.5, 10.5], "text": "free text", "size": 2},
+  {"label": [11.5, 11], "text": "right", "align": "right"}
+]}]}
+EOF2
+"$BIN" "$TMP/shapes.json" --check > "$TMP/shapes.chk" 2>&1; check "shapes: a clean deck" "$?" "0"
+has "shapes: --describe counts them" <("$BIN" "$TMP/shapes.json" --describe 2>&1) "shapes  8 shapes"
+"$BIN" "$TMP/shapes.json" --png "$TMP/shapes.png" > /dev/null 2>&1; check "shapes: png" "$?" "0"
+"$BIN" "$TMP/shapes.json" --print -w 100 -H 30 --no-color > "$TMP/shapes.out" 2>&1
+has "shapes: text inside a shape" "$TMP/shapes.out" "window"
+has "shapes: labels" "$TMP/shapes.out" "free text"
+for size in 20x6 200x60; do
+  "$BIN" "$TMP/shapes.json" --print --size "$size" --no-color > /dev/null 2>&1; check "shapes: survive $size" "$?" "0"
+done
+"$BIN" "$TMP/shapes.json" --print --ascii -w 80 -H 24 > /dev/null 2>&1; check "shapes: ascii" "$?" "0"
+cat > "$TMP/shapesbad.json" <<'EOF2'
+{"slides": [{"title": "bad", "shapes": [
+  {"rect": [1, 1, 0, 2]}, {"rect": [1, 1, 2, 2], "ellipse": [1, 1, 2, 2]}, {"poly": [[1, 1], [2, 2]]},
+  {"rect": [10, 10, 5, 5]}, {"rect": [1, 1, 2, 2], "colr": "red"}, {"rect": [1, 1, 1, 1], "text": "far too much text for so small a box"},
+  {"circle": [1, 1, 2, 2]}, {"label": [1, 1]}
+]}]}
+EOF2
+"$BIN" "$TMP/shapesbad.json" --check > "$TMP/shapesbad.out" 2>&1; check "shapes: bad input is an error" "$?" "1"
+has "shapes: zero width" "$TMP/shapesbad.out" "slides[0].shapes[0].rect: wants [x, y, w, h]"
+has "shapes: two kinds at once" "$TMP/shapesbad.out" "this has both"
+has "shapes: a polygon needs 3 points" "$TMP/shapesbad.out" "wants at least 3 points"
+has "shapes: off the grid" "$TMP/shapesbad.out" "reaches outside the block's 12 x 12 grid"
+has "shapes: unknown key, with a did-you-mean" "$TMP/shapesbad.out" 'did you mean "color"?'
+has "shapes: text that does not fit" "$TMP/shapesbad.out" "does not fit its shape"
+has "shapes: no kind" "$TMP/shapesbad.out" "a shape needs one of: rect"
+has "shapes: an empty label" "$TMP/shapesbad.out" "a label with no"
+
 echo "== decks: --png"
 "$BIN" "$DECK/deck.json" --png "$TMP/s1.png" > "$TMP/png.stdout" 2>&1; check "--png exits 0" "$?" "0"
 pngok "--png default is 120x33 cells = 960x528, 4-bit, CRCs, IDAT" "$TMP/s1.png" 960 528

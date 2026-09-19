@@ -20,6 +20,7 @@ std::string pad_left(std::string s, std::size_t n);
 std::string pad_right(std::string s, std::size_t n);
 std::string pad_center(std::string s, std::size_t n);
 std::string trunc_to(std::string s, std::size_t n);
+std::vector<std::string> wrap_words(const std::string &s, std::size_t width);
 
 // ---- numbers ---------------------------------------------------------------
 bool parse_num(const std::string &s, double &out);

@@ -1411,31 +1411,6 @@ Plot draw_hist(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
 
 // ---- annotations -------------------------------------------------------------
 
-std::vector<std::string> wrap_text(const std::string &s, std::size_t width) {
-  std::vector<std::string> out;
-  for (const std::string &para : split(s, '\n')) {
-    std::string line;
-    for (const std::string &word : split_any(para, " \t")) {
-      if (word.empty()) continue;
-      if (!line.empty() && cp_len(line) + 1 + cp_len(word) > width) {
-        out.push_back(line);
-        line.clear();
-      }
-      line += (line.empty() ? "" : " ") + word;
-      while (cp_len(line) > width) {
-        out.push_back(trunc_to(line, width));
-        auto cps = utf8_decode(line);
-        std::string rest;
-        for (std::size_t k = width - 1; k < cps.size(); k++) rest += u32_to_utf8(cps[k]);
-        line = rest;
-      }
-    }
-    out.push_back(line);
-  }
-  while (out.size() > 1 && out.back().empty()) out.pop_back();
-  return out;
-}
-
 void draw_notes(Scene &sc, Plot &p, const Dataset &ds, const RenderOpts &o, bool pie) {
   if (!p.sf) return;
   Surface &sf = *p.sf;
@@ -1464,7 +1439,7 @@ void draw_notes(Scene &sc, Plot &p, const Dataset &ds, const RenderOpts &o, bool
   for (const Annotation &a : o.notes) {
     uint8_t fg = S.note_fg, bg = S.note_bg;
     if (a.color >= 0) { bg = static_cast<uint8_t>(a.color); fg = contrast_on(bg); }
-    std::vector<std::string> lines = wrap_text(a.text, 24);
+    std::vector<std::string> lines = wrap_words(a.text, 24);
     std::size_t tw = 0;
     for (const auto &l : lines) tw = std::max(tw, cp_len(l));
     Box b;
