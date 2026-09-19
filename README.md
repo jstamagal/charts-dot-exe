@@ -16,7 +16,7 @@ serial line — it falls back to half blocks, and `--ascii` below that.
 
 ```sh
 make                          # ./charts   (C++17 compiler and make, nothing else)
-make test                     # 400-odd checks: CLI, fuzz, and the presenter on a pty
+make test                     # 500-odd checks: CLI, fuzz, and the presenter on a pty
 make install PREFIX=~/.local  # or the default /usr/local
 ```
 

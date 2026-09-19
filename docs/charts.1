@@ -13,12 +13,13 @@ charts \- DOS-style charts and slide decks for the Linux console
 .BR \-\-check " | " \-\-png
 .IR FILE " | "
 .B \-\-png\-dir
-.IR DIR " | " \fB\-\-print\fR
+.IR DIR " | " \fB\-\-print\fR " | " \fB\-\-launcher\fR " " \fINAME\fR
 .SH DESCRIPTION
 .B charts
 draws bar, line, area, pie, scatter and histogram charts in sixteen colours
-with dithered shading, and presents decks of them: slides of charts, text and
-big numbers, paged through with the arrow keys.
+with dithered shading, and presents decks of them: slides of charts, text,
+big numbers, flow diagrams and free shapes, paged through with the arrow
+keys.
 .PP
 A deck is a JSON file with a "slides" array, usually written by an agent or a
 script.  Data files are CSV, TSV or JSON.  Given a deck on a terminal,
@@ -55,6 +56,11 @@ validate a deck; every problem is reported with its JSON path
 .TP
 .B \-\-describe
 print what was parsed: a deck's outline, or a data file's columns
+.TP
+.BI \-\-launcher " NAME"
+write a small sh script that presents the deck, to ~/.local/bin/NAME (or to
+NAME itself when it has a slash), and print its path; it opens a terminal
+when started without one
 .TP
 .BI \-\-slide " N"
 the slide (from 1) to print, render or open on

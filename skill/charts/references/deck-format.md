@@ -1,7 +1,8 @@
 # The deck format
 
 A deck is one JSON file with a `slides` array. Paths in it are relative to the
-deck file. `charts --schema` prints a one-screen version of this page.
+deck file. `charts -h` (or `--schema`) prints the same material as the agent's
+manual.
 
 Contents: [Deck](#deck) · [Slide](#slide) · [Blocks](#blocks) ·
 [Layout](#layout) · [Chart fields](#chart-fields) · [Data](#data) ·

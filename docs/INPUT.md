@@ -40,9 +40,10 @@ Feb,145,88
 - **Series**: every other numeric column becomes one series.
 - **Blank lines** are skipped. A line starting with `#` is a comment.
 - **Quoting**: `"a,b"` keeps its comma, `""` inside a quoted field is one quote.
-- Numbers may carry thousands separators and a trailing `%`: `1,234.5`, `12%`,
-  `$40` all parse. A field that cannot parse becomes a gap in that series, not
-  an error.
+- A number may carry a trailing `%` or a leading `$`: `12%` and `$40` parse.
+  So does `"1,234.5"`, but only quoted: an unquoted comma is the delimiter.
+  Write plain numbers when you can. A field that cannot parse becomes a gap
+  in that series, not an error.
 
 ```csv
 # columns can be reordered and skipped freely
