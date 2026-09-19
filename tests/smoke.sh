@@ -238,6 +238,9 @@ has "broken axis: hbar too" "$TMP/brkh.out" "≈"
 "$BIN" "$TMP/brk.csv" --print -w 60 -H 14 --no-color > "$TMP/nobrk.out" 2>&1
 hasnt "an axis from zero is not broken" "$TMP/nobrk.out" "≈"
 "$BIN" "$TMP/brk.csv" --min 110 --png "$TMP/brk.png" > /dev/null 2>&1; check "broken axis: png renders" "$?" "0"
+"$BIN" "$TMP/brk.csv" --min 110 --print --ascii -w 60 -H 14 --no-color > "$TMP/brka.out" 2>&1
+if LC_ALL=C grep -q '[^ -~]' "$TMP/brka.out"; then bad "broken axis: --ascii stays ASCII"; else ok "broken axis: --ascii stays ASCII"; fi
+has "broken axis: --ascii marks the break" "$TMP/brka.out" "~"
 
 echo "== error bars"
 printf 'k,v,lo,hi,sd\na,10,8,12,1\nb,20,17,22,2\nc,15,,,\n' > "$TMP/err.csv"

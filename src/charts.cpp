@@ -504,7 +504,7 @@ void axis_break(const Plot &p, bool horizontal) {
     Pt c = at(0, 2);
     int cx = horizontal ? static_cast<int>(p.cellx(c.x)) : p.cells.x;
     int cy = horizontal ? p.cells.bottom() : static_cast<int>(p.celly(c.y));
-    p.sc->cv.put(cx, cy, U'≈', S.axis);
+    p.sc->cv.put(cx, cy, p.sc->mode().ascii ? U'~' : U'≈', S.axis);
     return;
   }
   const int off = std::max(8, std::min(14, len / 10));
