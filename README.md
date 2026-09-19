@@ -139,7 +139,7 @@ src/diagram.*   shapes and flow diagrams
 src/deck.*      deck model, checking, saving        src/slide.cpp   slide layout and drawing
 src/display.*   framebuffer, kitty, sixel, cells    src/tui.cpp     the presenter
 src/data.* json.* spec.*   loaders, write-back, the chart spec
-tests/          smoke.sh (CLI, fuzz) and tui.py (pty)
+tests/          smoke.sh (CLI), fuzz.py (random decks and data), tui.py (the presenter on a pty)
 tools/          mkfont.py regenerates src/font_data.inc
 ```
 
