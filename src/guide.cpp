@@ -152,8 +152,8 @@ DATA   a CSV/TSV/JSON file, or inline in any of these shapes:
   {"payroll": 620, "cloud": 310}             {"x": [1,2,3], "y": [4,5,6]}
   [["", "north", "south"], ["Q1", 120, 88], ...]        null = a gap
   CSV: delimiter , ; TAB | is sniffed; '#' lines are comments; plain numbers
-  only (no units, no thousands separators unless the field is quoted); an
-  empty field is a gap.  Columns of words are shown by a table, ignored by
+  only (1234.5 -3 1e6 $12 12%; "1,234" only quoted; no other units); an empty
+  field is a gap, and so is a stray word in a numeric column (--check names it).  Columns of words are shown by a table, ignored by
   every other chart.
   A file can say how it is drawn:   #chart: type=line, title="Load", values
                                     {"chart": {"type": "pie3d"}, "rows": [...]}

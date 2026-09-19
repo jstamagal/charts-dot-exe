@@ -154,14 +154,16 @@ Table parse_delimited(const std::string &text, char delim) {
     if (c == delim) { end_field(); saw = true; continue; }
     if (c == '\r') { if (i + 1 < text.size() && text[i + 1] == '\n') continue; }
     if (c == '\n') { end_row(); continue; }
-    // comments only when the line has not started yet
-    if (c == '#' && !saw && row.empty() && field.empty()) {
+    // Comments only when the line has not started yet, indented or not: the
+    // same rule the #chart scanner uses, which trims first.
+    if (c == '#' && !saw && row.empty() && trim(field).empty()) {
+      field.clear();
       while (i < text.size() && text[i] != '\n') i++;
       end_row();
       continue;
     }
     field += c;
-    saw = true;
+    if (c != ' ' && c != '\t') saw = true; // indentation does not start a line
   }
   if (!field.empty() || !row.empty()) end_row();
   return t;
@@ -300,20 +302,21 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
 
   const std::size_t ndata = t.rows.size() - first;
 
-  // which columns are numeric?
-  std::vector<bool> numeric(cols, true);
-  std::vector<int> nonblank(cols, 0);
+  // Which columns are numeric?  Most of their cells are numbers.  A stray
+  // word or typo in one becomes a gap and a warning, not a series that
+  // silently vanishes from every chart.
+  std::vector<bool> numeric(cols, false);
+  std::vector<int> nonblank(cols, 0), nums(cols, 0);
   for (std::size_t r = first; r < t.rows.size(); r++) {
     for (std::size_t c = 0; c < cols; c++) {
       double d;
       std::string f = trim(t.rows[r][c]);
       if (f.empty()) continue;
       nonblank[c]++;
-      if (!parse_num(f, d)) numeric[c] = false;
+      if (parse_num(f, d)) nums[c]++;
     }
   }
-  for (std::size_t c = 0; c < cols; c++)
-    if (nonblank[c] == 0) numeric[c] = false;
+  for (std::size_t c = 0; c < cols; c++) numeric[c] = nums[c] > 0 && nums[c] * 2 > nonblank[c];
 
   // label column
   int lc = opts.label_col;
@@ -389,6 +392,8 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
   }
 
   // series
+  std::string bad;
+  int bad_cells = 0;
   for (std::size_t c = 0; c < cols; c++) {
     int ci = static_cast<int>(c);
     if (ci == lc || ci == xc) continue;
@@ -415,6 +420,12 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
       double d = std::nan("");
       std::string f = trim(t.rows[r][c]);
       if (!f.empty() && parse_num(f, d)) s.decimals = std::max(s.decimals, decimals_of(f));
+      else if (!f.empty()) {
+        lose("\"" + f + "\" in \"" + hdr[c] + "\" is not a number and saving would lose it");
+        bad_cells++;
+        if (bad_cells <= 3)
+          bad += (bad.empty() ? "" : ", ") + std::string("\"") + f + "\" in \"" + hdr[c] + "\" (row " + std::to_string(r - first + 1) + ")";
+      }
       s.v.push_back(d);
     }
     ds.series.push_back(s);
@@ -435,6 +446,12 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
     ds.series.insert(ds.series.begin(), xs);
   }
 
+  if (bad_cells > 0) {
+    std::string h = bad + (bad_cells > 3 ? " and " + std::to_string(bad_cells - 3) + " more" : "") +
+                    (bad_cells == 1 ? " is not a number" : " are not numbers") +
+                    ", drawn as gaps (numbers are plain: 1234.5, -3, 1e6, \"1,234\", $12, 12%)";
+    ds.hint = ds.hint.empty() ? h : ds.hint + "; " + h;
+  }
   if (ds.series.empty())
     throw std::runtime_error("no numeric columns found (csv needs a header row and numbers)");
   ds.spec = file_spec;

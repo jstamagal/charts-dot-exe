@@ -40,10 +40,13 @@ Feb,145,88
 - **Series**: every other numeric column becomes one series.
 - **Blank lines** are skipped. A line starting with `#` is a comment.
 - **Quoting**: `"a,b"` keeps its comma, `""` inside a quoted field is one quote.
-- A number may carry a trailing `%` or a leading `$`: `12%` and `$40` parse.
-  So does `"1,234.5"`, but only quoted: an unquoted comma is the delimiter.
-  Write plain numbers when you can. A field that cannot parse becomes a gap
-  in that series, not an error.
+- A number is plain: `1234.5`, `-3`, `+3`, `1e6`, with a trailing `%` or a
+  leading `$` if you like. Grouping marks go between digits: `1_000`, and
+  `"1,234.5"` quoted (an unquoted comma is the delimiter). Nothing else is a
+  number: `1 2` is not 12 and `0x1A` is not 26.
+- A column is numeric when most of its cells are numbers. A cell in it that is
+  not becomes a gap in that series, and `--check` names it. A column that is
+  mostly words is text: tables show it, charts do not.
 
 ```csv
 # columns can be reordered and skipped freely

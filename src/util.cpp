@@ -151,25 +151,38 @@ std::string trunc_to(std::string s, std::size_t n) {
 
 // ---- numbers ---------------------------------------------------------------
 
+// A number the way people write one in a table: -1,234.5  $12  12%  +3  1_000
+// 1e6.  Grouping marks only between digits of the whole part.  Anything else
+// is not a number, so it is text rather than a wrong value: "1 2" is not 12,
+// "0x1A" is not 26, and inf, nan and 1.2.3 are not numbers at all.
 bool parse_num(const std::string &raw, double &out) {
   std::string s = trim(raw);
-  if (s.empty()) return false;
-  // strip thousands separators, currency and percent decoration
+  if (!s.empty() && s.back() == '%') s.pop_back();
   std::string t;
-  t.reserve(s.size());
-  for (char c : s) {
-    if (c == ',' || c == '_' || c == ' ' || c == '$') continue;
-    t.push_back(c);
+  std::size_t i = 0;
+  auto sign = [&] {
+    if (t.empty() && i < s.size() && (s[i] == '-' || s[i] == '+')) t += s[i++];
+  };
+  sign();
+  if (i < s.size() && s[i] == '$') i++;
+  sign();
+  auto digit = [&](std::size_t k) { return k < s.size() && std::isdigit(static_cast<unsigned char>(s[k])) != 0; };
+  bool digits = false, dot = false, exp = false;
+  for (; i < s.size(); i++) {
+    const char c = s[i];
+    if (digit(i)) { t += c; digits = true; }
+    else if ((c == ',' || c == '_') && !dot && !exp && i > 0 && digit(i - 1) && digit(i + 1)) continue;
+    else if (c == '.' && !dot && !exp) { t += c; dot = true; }
+    else if ((c == 'e' || c == 'E') && digits && !exp && (digit(i + 1) || ((i + 1 < s.size() && (s[i + 1] == '+' || s[i + 1] == '-')) && digit(i + 2)))) {
+      t += c;
+      exp = true;
+      if (!digit(i + 1)) t += s[++i];
+    } else return false;
   }
-  if (!t.empty() && t.back() == '%') t.pop_back();
-  if (t.empty()) return false;
-  const char *b = t.c_str();
+  if (!digits) return false;
   char *end = nullptr;
-  double v = std::strtod(b, &end);
-  if (end == b) return false;
-  while (end && *end && std::isspace(static_cast<unsigned char>(*end))) end++;
-  if (end && *end) return false;
-  if (!std::isfinite(v)) return false;
+  const double v = std::strtod(t.c_str(), &end);
+  if (!end || *end || !std::isfinite(v)) return false;
   out = v;
   return true;
 }

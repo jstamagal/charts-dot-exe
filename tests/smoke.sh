@@ -215,6 +215,19 @@ printf 'x,y\n1,2\n2,4\n3,5\n' > "$TMP/xyd.csv"
 hasnt "describe hides the internal X name" "$TMP/xyd.out" $'\x01'
 has "describe calls the X column the X axis" "$TMP/xyd.out" "x (X axis)"
 
+echo "== numbers are plain, and a stray word is a gap, not a lost series"
+printf 'k,v,note\na,1,x\nb,1 2,y\nc,"1,234.5",z\nd,$40,w\ne,0x1A,v\nf,12%%,u\n' > "$TMP/num.csv"
+"$BIN" "$TMP/num.csv" --describe < /dev/null > "$TMP/num.out" 2>&1
+has "1 2 is not 12, 0x1A is not 26: two gaps" "$TMP/num.out" "n=4    min=1            max=1,234.5"
+has "the gaps are counted" "$TMP/num.out" "gaps=2"
+printf '{"slides":[{"title":"t","data":"num.csv"}]}' > "$TMP/num.json"
+"$BIN" "$TMP/num.json" --check < /dev/null > "$TMP/numchk.out" 2>&1; check "a stray word is a warning, not an error" "$?" "0"
+has "--check names the cell" "$TMP/numchk.out" '"1 2" in "v" (row 2)'
+has "and the other" "$TMP/numchk.out" '"0x1A" in "v" (row 5)'
+printf 'k,v\n  # an indented comment\na,1\n\t#another\nb,2\n' > "$TMP/cmt.csv"
+"$BIN" "$TMP/cmt.csv" --describe < /dev/null > "$TMP/cmt.out" 2>&1
+has "an indented # line is a comment, as the #chart scanner has it" "$TMP/cmt.out" "rows:    2"
+
 echo "== tables show words, and numbers as the file wrote them"
 printf 'layout,ts,last,tg,pp\nCC,1/1,CUDA,115.3,3015\nCRRC,14/30/30/14,CUDA,59.0,1124\n' > "$TMP/tab.csv"
 "$BIN" "$TMP/tab.csv" -t table --print -w 80 -H 8 --ascii --no-color > "$TMP/tab.out" 2>&1; check "table with text columns: exit 0" "$?" "0"
@@ -396,8 +409,9 @@ for th in dos black light; do
   "$BIN" "$EX/revenue.csv" -t bar --theme $th -w 90 -H 24 --color >/dev/null || bad "--theme $th"
 done
 ok "every theme runs"
-"$BIN" "$EX/revenue.csv" --no-header --describe >/dev/null 2>&1
-check "--no-header on a headed file drops the names" "$?" "1"
+"$BIN" "$EX/revenue.csv" --no-header --describe > "$TMP/nohdr.out" 2>&1
+check "--no-header on a headed file still draws" "$?" "0"
+has "--no-header: the header row's words are named as gaps" "$TMP/nohdr.out" '"revenue" in "col2" (row 1)' 
 printf '10,20\n1,2\n3,4\n' > "$TMP/numhead.csv"
 "$BIN" "$TMP/numhead.csv" --no-header --describe | grep -q "^rows:    3"
 check "--no-header keeps every row" "$?" "0"
