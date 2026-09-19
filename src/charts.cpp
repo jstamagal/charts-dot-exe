@@ -678,17 +678,64 @@ Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, b
   return p;
 }
 
-// ---- horizontal bars ---------------------------------------------------------
+// ---- charts on their side ------------------------------------------------------
 
-Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
+// The frame of a chart whose value axis runs across (hbar, dumbbell): the
+// category names in a gutter down the left, ticks along the bottom.  lo and hi
+// come back rounded out to the ticks; gut is the gutter's width.
+Plot sideways_axes(Scene &sc, Rect r, Rect clip, const Dataset &ds, const RenderOpts &o, double &lo, double &hi, int &gut) {
   Plot p;
   p.sc = &sc;
   p.clip = clip;
   p.fine = sc.mode().pixel;
   p.sx = sc.mode().sx();
   p.sy = sc.mode().sy();
+  p.across = true;
+  std::size_t labw = 0;
+  for (std::size_t i = 0; i < ds.nrows(); i++)
+    labw = std::max(labw, cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1)));
+  gut = std::min(static_cast<int>(labw) + 1, std::max(4, r.w / 3));
+  if (static_cast<int>(labw) + 1 > gut)
+    sc.fit_note("category labels are cut to " + std::to_string(gut - 1) + " characters (the longest is " +
+                std::to_string(labw) + ")");
+  const int gx = r.x + gut + 1, gw = std::max(1, r.right() - gx + 1 - 2);
+  const int gy = r.y, gh = std::max(1, r.h - 2 - (o.xlabel.empty() ? 0 : 1));
+  std::vector<double> ticks = nice_range(lo, hi, std::max(3, std::min(8, gw / 10)), o.has_lo, o.has_hi);
+  p.lo = lo;
+  p.hi = hi;
+  p.cells = Rect{gx - 1, gy, gw + 1, gh + 1};
+  p.sf = &sc.surface(p.cells);
+  p.ox = p.sx;
+  p.pw = gw * p.sx;
+  p.ph = gh * p.sy;
+  Surface &sf = *p.sf;
+  if (p.fine) sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
+  else sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
+  for (double t : ticks) {
+    const double x = p.X(t);
+    const std::string lab = fmt_axis(t);
+    const double len = static_cast<double>(cp_len(lab));
+    if (p.fine) {
+      sf.vline(static_cast<int>(x), p.ph + 1, p.ph + 3, Ink(S.axis));
+      if (o.grid) sf.dotted_v(static_cast<int>(x), 0, p.ph - 1, Ink(S.grid), 4);
+    } else {
+      sc.cv.put(static_cast<int>(p.cellx(x)), gy + gh, G.tt, S.axis);
+      if (o.grid) sc.cv.vline(static_cast<int>(p.cellx(x)), gy, gh, G.dot, S.grid);
+    }
+    double tx = p.cellx(x) - len / 2;
+    if (!p.fine) tx = std::floor(tx + 0.5);
+    tx = std::max<double>(r.x, std::min<double>(tx, r.right() + 1 - len));
+    sc.text(tx, p.fine ? gy + gh + 0.45 : gy + gh + 1, lab, S.tick);
+  }
+  if (!o.xlabel.empty()) sc.cv.text_c(gx, r.bottom(), gw, o.xlabel, S.xlabel);
+  return p;
+}
+
+// ---- horizontal bars ---------------------------------------------------------
+
+Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
   std::size_t n = ds.nrows(), ns = ds.series.size();
-  if (n == 0 || ns == 0) return p;
+  if (n == 0 || ns == 0) return Plot();
 
   double lo = 0, hi = 0;
   ds.bounds(lo, hi);
@@ -699,53 +746,11 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
   if (o.has_hi) hi = o.hi;
   else hi += (hi - lo) * (o.values ? 0.12 : 0.03);
 
-  std::size_t labw = 0;
-  for (std::size_t i = 0; i < n; i++)
-    labw = std::max(labw, cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1)));
-  int gut = std::min(static_cast<int>(labw) + 1, std::max(4, r.w / 3));
-  if (static_cast<int>(labw) + 1 > gut)
-    sc.fit_note("category labels are cut to " + std::to_string(gut - 1) + " characters (the longest is " +
-                std::to_string(labw) + ")");
-
-  int gx = r.x + gut + 1;
-  int gw = std::max(1, r.right() - gx + 1 - 2);
-  int below = 2 + (o.xlabel.empty() ? 0 : 1);
-  int gy = r.y, gh = std::max(1, r.h - below);
-  std::vector<double> ticks = nice_range(lo, hi, std::max(3, std::min(8, gw / 10)), o.has_lo, o.has_hi);
-  p.lo = lo;
-  p.hi = hi;
-
-  p.cells = Rect{gx - 1, gy, gw + 1, gh + 1};
-  p.sf = &sc.surface(p.cells);
-  p.ox = p.sx;
-  p.pw = gw * p.sx;
-  p.ph = gh * p.sy;
-  p.across = true;
+  int gut = 0;
+  Plot p = sideways_axes(sc, r, clip, ds, o, lo, hi, gut);
   Surface &sf = *p.sf;
   auto X = [&](double v) { return p.X(v); };
-
-  if (p.fine) {
-    sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
-  } else {
-    sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
-  }
-  for (double t : ticks) {
-    double x = X(t);
-    std::string lab = fmt_axis(t);
-    int len = static_cast<int>(cp_len(lab));
-    if (p.fine) {
-      sf.vline(static_cast<int>(x), p.ph + 1, p.ph + 3, Ink(S.axis));
-      if (o.grid) sf.dotted_v(static_cast<int>(x), 0, p.ph - 1, Ink(S.grid), 4);
-    } else {
-      sc.cv.put(static_cast<int>(p.cellx(x)), gy + gh, G.tt, S.axis);
-      if (o.grid) sc.cv.vline(static_cast<int>(p.cellx(x)), gy, gh, G.dot, S.grid);
-    }
-    double tx = p.cellx(x) - len / 2.0;
-    if (!p.fine) tx = std::floor(tx + 0.5);
-    tx = std::max<double>(r.x, std::min<double>(tx, r.right() + 1 - len));
-    sc.text(tx, p.fine ? gy + gh + 0.45 : gy + gh + 1, lab, S.tick);
-  }
-  if (!o.xlabel.empty()) sc.cv.text_c(gx, r.bottom(), gw, o.xlabel, S.xlabel);
+  const int gx = p.cells.x + 1, gy = p.cells.y, gh = p.cells.h - 1;
 
   double slot = static_cast<double>(p.ph) / n;
   double group = std::max(1.0, std::floor(slot * (ns > 1 ? 0.8 : 0.66)));
@@ -824,14 +829,8 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
 // with an arrowhead on the last series so the direction of change reads at a
 // glance.  Positions, not lengths, so the axis need not start at zero.
 Plot draw_dumbbell(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) {
-  Plot p;
-  p.sc = &sc;
-  p.clip = clip;
-  p.fine = sc.mode().pixel;
-  p.sx = sc.mode().sx();
-  p.sy = sc.mode().sy();
   const std::size_t n = ds.nrows(), ns = ds.series.size();
-  if (n == 0 || ns == 0) return p;
+  if (n == 0 || ns == 0) return Plot();
 
   double lo = 0, hi = 0;
   ds.bounds(lo, hi);
@@ -842,44 +841,11 @@ Plot draw_dumbbell(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &
   if (o.has_lo) lo = o.lo;
   if (o.has_hi) hi = o.hi;
 
-  std::size_t labw = 0;
-  for (std::size_t i = 0; i < n; i++) labw = std::max(labw, cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1)));
-  int gut = std::min(static_cast<int>(labw) + 1, std::max(4, r.w / 3));
-  if (static_cast<int>(labw) + 1 > gut)
-    sc.fit_note("category labels are cut to " + std::to_string(gut - 1) + " characters (the longest is " +
-                std::to_string(labw) + ")");
-  const int gx = r.x + gut + 1, gw = std::max(1, r.right() - gx + 1 - 2);
-  const int gy = r.y, gh = std::max(1, r.h - 2 - (o.xlabel.empty() ? 0 : 1));
-  std::vector<double> ticks = nice_range(lo, hi, std::max(3, std::min(8, gw / 10)), o.has_lo, o.has_hi);
-  p.lo = lo;
-  p.hi = hi;
-  p.cells = Rect{gx - 1, gy, gw + 1, gh + 1};
-  p.sf = &sc.surface(p.cells);
-  p.ox = p.sx;
-  p.pw = gw * p.sx;
-  p.ph = gh * p.sy;
-  p.across = true;
+  int gut = 0;
+  Plot p = sideways_axes(sc, r, clip, ds, o, lo, hi, gut);
   Surface &sf = *p.sf;
   auto X = [&](double v) { return p.X(v); };
-
-  if (p.fine) sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
-  else sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
-  for (double t : ticks) {
-    double x = X(t);
-    std::string lab = fmt_axis(t);
-    if (p.fine) {
-      sf.vline(static_cast<int>(x), p.ph + 1, p.ph + 3, Ink(S.axis));
-      if (o.grid) sf.dotted_v(static_cast<int>(x), 0, p.ph - 1, Ink(S.grid), 4);
-    } else {
-      sc.cv.put(static_cast<int>(p.cellx(x)), gy + gh, G.tt, S.axis);
-      if (o.grid) sc.cv.vline(static_cast<int>(p.cellx(x)), gy, gh, G.dot, S.grid);
-    }
-    double tx = p.cellx(x) - cp_len(lab) / 2.0;
-    if (!p.fine) tx = std::floor(tx + 0.5);
-    tx = std::max<double>(r.x, std::min<double>(tx, r.right() + 1 - static_cast<double>(cp_len(lab))));
-    sc.text(tx, p.fine ? gy + gh + 0.45 : gy + gh + 1, lab, S.tick);
-  }
-  if (!o.xlabel.empty()) sc.cv.text_c(gx, r.bottom(), gw, o.xlabel, S.xlabel);
+  const int gy = p.cells.y, gh = p.cells.h - 1;
 
   const double slot = static_cast<double>(p.ph) / n;
   const double rad = p.fine ? std::max(3.0, std::min(7.0, slot * 0.22)) : 1;
