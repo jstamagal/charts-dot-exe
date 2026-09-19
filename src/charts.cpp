@@ -1044,39 +1044,71 @@ Plot draw_pie(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, bo
 
 // ---- table -------------------------------------------------------------------
 
+// Columns in the file's own order, words as well as numbers.  A number keeps
+// the decimals the file wrote it with (59.0 stays 59.0), unless prec says.
 void draw_table(Scene &sc, Rect r, Dataset &ds, const RenderOpts &o) {
   Canvas &cv = sc.cv;
-  std::size_t n = ds.nrows();
-  std::vector<const Series *> cols;
-  for (const auto &s : ds.series) cols.push_back(&s);
+  const std::size_t n = ds.nrows();
+  struct Col {
+    std::string head;
+    int order;
+    const Series *s;
+    const TextColumn *t;
+    int w;
+    int dec;
+  };
+  std::vector<Col> cols;
+  const int last = 1 << 20;
+  for (const auto &s : ds.series) cols.push_back({hidden_series(s) ? ds.x_name : s.name, s.col > 0 ? s.col : last, &s, nullptr, 0, s.decimals});
+  for (const auto &t : ds.text) cols.push_back({t.name, t.col > 0 ? t.col : last, nullptr, &t, 0, -1});
+  std::stable_sort(cols.begin(), cols.end(), [](const Col &a, const Col &b) { return a.order < b.order; });
   if (n == 0 || cols.empty()) return;
 
-  std::vector<int> w(cols.size() + 1, 1);
-  for (std::size_t i = 0; i < n; i++)
-    w[0] = std::max(w[0], static_cast<int>(cp_len(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1))));
-  w[0] = std::min(w[0], 20);
-  for (std::size_t c = 0; c < cols.size(); c++) {
-    std::string name = hidden_series(*cols[c]) ? "x" : cols[c]->name;
-    w[c + 1] = std::max(3, static_cast<int>(cp_len(name)));
-    for (double v : cols[c]->v)
-      if (std::isfinite(v)) w[c + 1] = std::max(w[c + 1], static_cast<int>(cp_len(fmt_val(v, o.prec))));
-    w[c + 1] = std::min(w[c + 1], 16);
+  // JSON does not say how a number was written: use as few decimals as the
+  // column needs (at most 3), the same for every row.
+  for (auto &c : cols) {
+    if (!c.s || c.s->decimals >= 0 || o.prec >= 0) continue;
+    int d = 0;
+    for (double v : c.s->v)
+      while (std::isfinite(v) && d < 3 && std::fabs(v * std::pow(10, d) - std::round(v * std::pow(10, d))) > 1e-6) d++;
+    c.dec = d;
+  }
+  auto cell = [&](const Col &c, std::size_t i) -> std::string {
+    if (c.t) return i < c.t->v.size() ? c.t->v[i] : "";
+    double v = i < c.s->v.size() ? c.s->v[i] : std::nan("");
+    return std::isfinite(v) ? fmt_val(v, o.prec >= 0 ? o.prec : c.dec) : "-";
+  };
+  auto label = [&](std::size_t i) { return i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1); };
+
+  int w0 = static_cast<int>(cp_len(ds.label_name));
+  for (std::size_t i = 0; i < n; i++) w0 = std::max(w0, static_cast<int>(cp_len(label(i))));
+  w0 = std::min(w0, 20);
+  for (auto &c : cols) {
+    c.w = std::max(3, static_cast<int>(cp_len(c.head)));
+    for (std::size_t i = 0; i < n; i++) c.w = std::max(c.w, static_cast<int>(cp_len(cell(c, i))));
+    c.w = std::min(c.w, c.t ? 24 : 16);
   }
   std::size_t shown = cols.size();
   auto width = [&]() {
-    int t = w[0];
-    for (std::size_t c = 0; c < shown; c++) t += w[c + 1] + 2;
+    int t = w0;
+    for (std::size_t c = 0; c < shown; c++) t += cols[c].w + 2;
     return t;
   };
   while (shown > 1 && width() > r.w) shown--;
-  int x0 = r.x + std::max(0, (r.w - width()) / 2);
+  const int x0 = r.x + std::max(0, (r.w - width()) / 2);
 
+  // text reads from the left, numbers line up on the right
+  auto put = [&](const Col &c, int x, int y, const std::string &s, uint8_t fg) {
+    std::string t = trunc_to(s, static_cast<std::size_t>(c.w));
+    if (c.t) cv.text(x + 2, y, t, fg);
+    else cv.text_r(x + 2, y, c.w, t, fg);
+  };
   int y = r.y;
-  int x = x0 + w[0];
+  int x = x0 + w0;
+  cv.text(x0, y, trunc_to(ds.label_name, static_cast<std::size_t>(w0)), S.table_head);
   for (std::size_t c = 0; c < shown; c++) {
-    std::string name = hidden_series(*cols[c]) ? "x" : cols[c]->name;
-    cv.text_r(x + 2, y, w[c + 1], name, S.table_head);
-    x += w[c + 1] + 2;
+    put(cols[c], x, y, cols[c].head, S.table_head);
+    x += cols[c].w + 2;
   }
   y++;
   cv.hline(x0, y, std::min(width(), r.w), G.h, S.table_rule);
@@ -1085,18 +1117,22 @@ void draw_table(Scene &sc, Rect r, Dataset &ds, const RenderOpts &o) {
   std::size_t show = n;
   if (static_cast<int>(n) > room) show = static_cast<std::size_t>(std::max(0, room - 1));
   for (std::size_t i = 0; i < show; i++, y++) {
-    cv.text(x0, y, trunc_to(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1), static_cast<std::size_t>(w[0])),
-            S.label);
-    x = x0 + w[0];
+    cv.text(x0, y, trunc_to(label(i), static_cast<std::size_t>(w0)), S.label);
+    x = x0 + w0;
     for (std::size_t c = 0; c < shown; c++) {
-      double v = i < cols[c]->v.size() ? cols[c]->v[i] : std::nan("");
-      cv.text_r(x + 2, y, w[c + 1], std::isfinite(v) ? fmt_val(v, o.prec) : "-", S.table_row);
-      x += w[c + 1] + 2;
+      put(cols[c], x, y, cell(cols[c], i), S.table_row);
+      x += cols[c].w + 2;
     }
   }
-  if (show < n) cv.text(x0, y, "... " + std::to_string(n - show) + " more rows", S.subtitle);
-  if (shown < cols.size())
+  if (show < n) {
+    cv.text(x0, y, "... " + std::to_string(n - show) + " more rows", S.subtitle);
+    sc.fit_note("the table shows " + std::to_string(show) + " of " + std::to_string(n) + " rows; give it more height or split it");
+  }
+  if (shown < cols.size()) {
     cv.text_r(r.x, r.y, r.w, "+" + std::to_string(cols.size() - shown) + " cols", S.subtitle);
+    sc.fit_note("the table shows " + std::to_string(shown) + " of " + std::to_string(cols.size()) +
+                " columns; give it more width or use series_col");
+  }
 }
 
 // ---- histogram ---------------------------------------------------------------

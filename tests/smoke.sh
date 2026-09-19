@@ -208,6 +208,24 @@ printf 'x,y\n1,2\n2,4\n3,5\n' > "$TMP/xyd.csv"
 hasnt "describe hides the internal X name" "$TMP/xyd.out" $'\x01'
 has "describe calls the X column the X axis" "$TMP/xyd.out" "x (X axis)"
 
+echo "== tables show words, and numbers as the file wrote them"
+printf 'layout,ts,last,tg,pp\nCC,1/1,CUDA,115.3,3015\nCRRC,14/30/30/14,CUDA,59.0,1124\n' > "$TMP/tab.csv"
+"$BIN" "$TMP/tab.csv" -t table --print -w 80 -H 8 --ascii --no-color > "$TMP/tab.out" 2>&1; check "table with text columns: exit 0" "$?" "0"
+has "table: text column kept" "$TMP/tab.out" "14/30/30/14"
+has "table: second text column kept" "$TMP/tab.out" "CUDA"
+has "table: 59.0 keeps its decimal" "$TMP/tab.out" "59.0"
+has "table: whole numbers stay whole, with commas" "$TMP/tab.out" "3,015"
+has "table: the label column has its header" "$TMP/tab.out" "layout"
+"$BIN" "$TMP/tab.csv" -t table --prec 2 --print -w 80 -H 8 --ascii --no-color > "$TMP/tabp.out" 2>&1
+has "table: prec still wins" "$TMP/tabp.out" "3,015.00"
+printf '[{"name":"a","v":1.5,"note":"hi"},{"name":"b","v":2,"note":"yo"}]' > "$TMP/tab.json"
+"$BIN" "$TMP/tab.json" -t table --print -w 60 -H 6 --ascii --no-color > "$TMP/tabj.out" 2>&1
+has "table: json text field kept" "$TMP/tabj.out" "yo"
+has "table: json column shares its decimals" "$TMP/tabj.out" "2.0"
+printf '{"slides":[{"title":"t","type":"table","data":"tab.csv"}],"display":{"size":[40,12]}}' > "$TMP/tabdeck.json"
+"$BIN" "$TMP/tabdeck.json" --check > "$TMP/tabchk.out" 2>&1
+has "table: --check warns when columns are cut" "$TMP/tabchk.out" "columns; give it more width"
+
 echo "== a data file that says how it wants to be drawn"
 printf '#chart: type=pie3d, title="Disk use", values\nname,gb\nroot,40\nhome,120\nvar,15\n' > "$TMP/spec.csv"
 "$BIN" --describe "$TMP/spec.csv" > "$TMP/spec.txt" 2>&1; check "#chart: csv describes" "$?" "0"

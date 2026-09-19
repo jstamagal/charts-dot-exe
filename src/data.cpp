@@ -1,6 +1,7 @@
 #include "data.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -175,6 +176,16 @@ void transpose_table(Table &t) {
     for (auto &r : t.rows) o.rows[c].push_back(c < r.size() ? r[c] : std::string());
   }
   t = o;
+}
+
+// Digits after the point, so a table can print 59.0 the way the file did.
+int decimals_of(const std::string &f) {
+  if (f.find_first_of("eE") != std::string::npos) return -1;
+  std::size_t dot = f.rfind('.');
+  if (dot == std::string::npos) return 0;
+  int n = 0;
+  for (std::size_t i = dot + 1; i < f.size() && std::isdigit(static_cast<unsigned char>(f[i])); i++) n++;
+  return n;
 }
 
 std::string col_name(const std::vector<std::string> &hdr, std::size_t i) {
@@ -372,7 +383,14 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
     int ci = static_cast<int>(c);
     if (ci == lc || ci == xc) continue;
     if (!numeric[c]) {
-      if (nonblank[c] > 0) lose("column \"" + hdr[c] + "\" is not numeric and is not shown");
+      if (nonblank[c] == 0) continue;
+      lose("column \"" + hdr[c] + "\" is not numeric and only a table shows it");
+      if (opts.series_col >= 0) continue;
+      TextColumn tc;
+      tc.name = hdr[c];
+      tc.col = ci + 1;
+      for (std::size_t r = first; r < t.rows.size(); r++) tc.v.push_back(trim(t.rows[r][c]));
+      ds.text.push_back(tc);
       continue;
     }
     if (opts.series_col >= 0 && ci != opts.series_col) { lose("series_col hides the other columns"); continue; }
@@ -383,7 +401,7 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
     for (std::size_t r = first; r < t.rows.size(); r++) {
       double d = std::nan("");
       std::string f = trim(t.rows[r][c]);
-      if (!f.empty()) parse_num(f, d);
+      if (!f.empty() && parse_num(f, d)) s.decimals = std::max(s.decimals, decimals_of(f));
       s.v.push_back(d);
     }
     ds.series.push_back(s);
@@ -605,6 +623,7 @@ void number_series(Dataset &ds, int series_col) {
   ds.series.erase(std::remove_if(ds.series.begin(), ds.series.end(),
                                  [&](const Series &s) { return !is_x(s) && s.col != want; }),
                   ds.series.end());
+  ds.text.clear();
   ds.lossy = true;
   ds.lossy_why = "series_col hides the other columns";
 }

@@ -1,5 +1,6 @@
 #include "json.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -350,6 +351,7 @@ bool dataset_from_records(const Json &arr, Dataset &ds, const LoadOpts &o) {
   if (numkeys.empty()) return false;
 
   ds.labels.clear();
+  ds.label_name = label_key;
   for (std::size_t r = 0; r < arr.a.size(); r++) {
     const Json *v = label_key.empty() ? nullptr : arr.a[r].get(label_key);
     if (v && v->is_str()) ds.labels.push_back(v->s);
@@ -364,6 +366,22 @@ bool dataset_from_records(const Json &arr, Dataset &ds, const LoadOpts &o) {
       s.v.push_back(v && v->is_num() ? v->n : std::nan(""));
     }
     ds.series.push_back(s);
+  }
+  // Fields of words: a table shows them, nothing else can.
+  for (const auto &k : keys) {
+    if (k == label_key || std::find(numkeys.begin(), numkeys.end(), k) != numkeys.end()) continue;
+    TextColumn tc;
+    tc.name = k;
+    bool any = false;
+    for (const auto &rec : arr.a) {
+      const Json *v = rec.get(k);
+      tc.v.push_back(v && v->is_str() ? v->s : (v && v->is_num() ? fmt_val(v->n) : ""));
+      any = any || !tc.v.back().empty();
+    }
+    if (!any) continue;
+    ds.text.push_back(tc);
+    ds.lossy = true;
+    ds.lossy_why = "field \"" + k + "\" is not numeric and only a table shows it";
   }
   return true;
 }

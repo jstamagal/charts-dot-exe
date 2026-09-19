@@ -15,6 +15,14 @@ struct Series {
   std::vector<double> v;
   int color = 7; // assigned by the chart renderer
   int col = 0;   // column in the source, counted from 1 with the labels: what series_col takes
+  int decimals = -1; // most digits after the point as the file wrote them; -1 = not known
+};
+
+// Words in a column no chart can draw, kept so a table can show them.
+struct TextColumn {
+  std::string name;
+  int col = 0; // as Series::col; 0 = after the numbers
+  std::vector<std::string> v;
 };
 
 struct Dataset {
@@ -32,6 +40,7 @@ struct Dataset {
   bool lossy = false;
   std::string lossy_why;
   std::vector<Series> series;
+  std::vector<TextColumn> text;
   ChartSpec spec; // how the file asked to be drawn, if it said so
 
   bool empty() const { return series.empty() || nrows() == 0; }
