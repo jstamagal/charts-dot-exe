@@ -714,6 +714,8 @@ for size in 20x6 200x60; do
   "$BIN" "$TMP/shapes.json" --print --size "$size" --no-color > /dev/null 2>&1; check "shapes: survive $size" "$?" "0"
 done
 "$BIN" "$TMP/shapes.json" --print --ascii -w 80 -H 24 > /dev/null 2>&1; check "shapes: ascii" "$?" "0"
+printf '{"slides":[{"title":"t","shapes":[{"rect":[0,0,0.2,3],"text":"hello"}]}]}' > "$TMP/sliver.json"
+timeout 10 "$BIN" "$TMP/sliver.json" --check > /dev/null 2>&1; check "shapes: text in a one-column sliver does not hang" "$?" "0"
 cat > "$TMP/shapesbad.json" <<'EOF2'
 {"slides": [{"title": "bad", "shapes": [
   {"rect": [1, 1, 0, 2]}, {"rect": [1, 1, 2, 2], "ellipse": [1, 1, 2, 2]}, {"poly": [[1, 1], [2, 2]]},

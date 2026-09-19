@@ -328,11 +328,15 @@ std::vector<std::string> wrap_words(const std::string &s, std::size_t width) {
         line.clear();
       }
       line += (line.empty() ? "" : " ") + word;
+      // trunc_to ends a cut line with '.', which takes the place of one
+      // character; at width 1 there is no room for the dot and nothing is
+      // replaced, so the rest must start one further on or never shrink.
+      const std::size_t cut = width > 1 ? width - 1 : 1;
       while (cp_len(line) > width) {
         out.push_back(trunc_to(line, width));
         auto cps = utf8_decode(line);
         std::string rest;
-        for (std::size_t k = width - 1; k < cps.size(); k++) rest += u32_to_utf8(cps[k]);
+        for (std::size_t k = cut; k < cps.size(); k++) rest += u32_to_utf8(cps[k]);
         line = rest;
       }
     }
