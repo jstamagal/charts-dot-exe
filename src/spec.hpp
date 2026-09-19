@@ -33,6 +33,17 @@ struct Annotation {
   int color = -1;     // -1 = the theme's note colours
 };
 
+// Whiskers on a series, from other columns of the same data.
+//   "errors": {"tg": "tg sd"}               tg +- the tg sd column
+//   "errors": {"tg": ["tg min", "tg max"]}  from one column to the other
+//   "errors": "sd"  /  ["min", "max"]        the same, on the first series
+// The columns named are drawn as whiskers, never as series of their own.
+struct ErrorBars {
+  std::string series; // empty = the first series
+  std::string lo, hi; // column names; plus_minus uses lo alone
+  bool plus_minus = false;
+};
+
 struct ChartSpec {
   // ---- how it looks
   std::string type, palette, frame;
@@ -55,6 +66,9 @@ struct ChartSpec {
 
   std::vector<Annotation> notes;
   bool has_notes = false;
+
+  std::vector<ErrorBars> errors;
+  bool has_errors = false;
 
   // "colors": {"revenue": "green"} by series (or pie slice) name, or
   // ["green", "red"] in order.  A positional entry has an empty name.

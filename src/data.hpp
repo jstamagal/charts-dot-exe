@@ -60,6 +60,7 @@ struct LoadOpts {
   int label_col = -1;    // -1 = auto
   int series_col = -1;   // -1 = all numeric
   std::string label_key; // json: record field to use as label
+  std::vector<std::string> keep; // columns series_col must not drop (error bars)
 
   // Which of the above the caller set on purpose.  A value the command line
   // set must never be overwritten by the data file's own spec.
@@ -79,7 +80,9 @@ Dataset from_json_value(const Json &j, const LoadOpts &o);
 // Number the series the way series_col counts (the labels are column 1) and,
 // when series_col is set, keep only that one.  Throws naming what is there
 // when it points at nothing drawable.  The CSV loader does its own.
-void number_series(Dataset &ds, int series_col);
+void number_series(Dataset &ds, int series_col, const std::vector<std::string> &keep = {});
+// Is this column one series_col has to leave in?
+bool kept_column(const std::vector<std::string> &keep, const std::string &name);
 
 // ---- writing back ----------------------------------------------------------
 // The leading '#' lines of `original` (comments, #chart directives) are kept.

@@ -512,6 +512,38 @@ void axis_break(const Plot &p, bool horizontal) {
   }
 }
 
+// ---- error bars --------------------------------------------------------------
+
+bool has_whisker(const RenderOpts &o, std::size_t s, std::size_t i) {
+  return s < o.err_lo.size() && i < o.err_lo[s].size() && std::isfinite(o.err_lo[s][i]) && std::isfinite(o.err_hi[s][i]);
+}
+
+// Stretch an axis so every whisker fits on it.
+void whisker_bounds(const RenderOpts &o, double &lo, double &hi) {
+  for (std::size_t s = 0; s < o.err_lo.size(); s++)
+    for (std::size_t i = 0; i < o.err_lo[s].size(); i++)
+      if (has_whisker(o, s, i)) { lo = std::min(lo, o.err_lo[s][i]); hi = std::max(hi, o.err_hi[s][i]); }
+}
+
+// A line between the two ends with a cap on each, outlined in the panel colour
+// so it reads over a bar of any colour.  a0/a1 run along the value axis, at is
+// the other coordinate; all in surface pixels.
+void whisker(const Plot &p, double a0, double a1, double at, bool horizontal) {
+  Surface &sf = *p.sf;
+  const double cap = p.fine ? 5 : 1;
+  auto seg = [&](double u0, double v0, double u1, double v1, Ink k, int w) {
+    if (horizontal) sf.line(v0, u0, v1, u1, k, w);
+    else sf.line(u0, v0, u1, v1, k, w);
+  };
+  auto draw = [&](Ink k, int w, double c) {
+    seg(at, a0, at, a1, k, w);
+    seg(at - c, a0, at + c, a0, k, w);
+    seg(at - c, a1, at + c, a1, k, w);
+  };
+  if (p.fine) draw(Ink(panel_color()), 3, cap + 1);
+  draw(Ink(S.value), 1, cap);
+}
+
 // Where the editing cursor is: a drop line to the axis and a fat ring.
 void ring_cursor(const Plot &p, double x, double y) {
   if (!p.fine) { p.sf->ring(x, y, 1.5, Ink(15)); return; }
@@ -546,6 +578,7 @@ Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, b
     }
   } else {
     ds.bounds(lo, hi);
+    whisker_bounds(o, lo, hi);
   }
   if (lo > 0) lo = 0;
   if (hi < 0) hi = 0;
@@ -568,6 +601,8 @@ Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, b
   if (tight) d = Depth();
   // Keep the last bar's side face inside the plot.
   double shift = -d.dx / 2;
+  struct Pending { double x, y0, y1; };
+  std::vector<Pending> whiskers; // drawn over every bar, not under the next one
 
   for (std::size_t i = 0; i < n; i++) {
     double gx0 = p.ox + i * slot + (slot - group) / 2 + shift;
@@ -606,16 +641,24 @@ Plot draw_bars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, b
         }
         bar3d(p, x0, x1, base, yv, fill_ink(o, col, s), col, d, !by_shade(o), true);
         p.remember(static_cast<int>(s), static_cast<int>(i), (x0 + x1) / 2, yv);
+        double top = yv, bottom = yv; // the label goes past the whisker too
+        if (has_whisker(o, s, i)) {
+          double wa = p.Y(o.err_lo[s][i]), wb = p.Y(o.err_hi[s][i]);
+          whiskers.push_back({(x0 + x1) / 2, wa, wb});
+          top = std::min(top, std::min(wa, wb) - (p.fine ? 2 : 0));
+          bottom = std::max(bottom, std::max(wa, wb));
+        }
         if (o.values) {
           std::string lab = fmt_val(v, o.prec);
           if (static_cast<int>(cp_len(lab)) * p.sx <= bar_w + (ns == 1 ? slot - group : 0) + (p.fine ? 2 : 0)) {
-            double ly = v >= 0 ? yv - d.dy - p.sy * 0.6 : yv + p.sy * 0.6;
+            double ly = v >= 0 ? std::min(yv - d.dy, top) - p.sy * 0.6 : bottom + p.sy * 0.6;
             p.label((x0 + x1) / 2 + d.dx / 2, ly, lab, S.value);
           }
         }
       }
     }
   }
+  for (const auto &w : whiskers) whisker(p, w.y0, w.y1, w.x, false);
   if (lo > 0) axis_break(p, false);
   return p;
 }
@@ -634,6 +677,7 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
 
   double lo = 0, hi = 0;
   ds.bounds(lo, hi);
+  whisker_bounds(o, lo, hi);
   if (lo > 0) lo = 0;
   if (hi < 0) hi = 0;
   if (o.has_lo) lo = o.lo;
@@ -740,9 +784,15 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
         sf.rect(xa, y1 - 1, xb, y1, side_ink(c));
       }
       p.remember(static_cast<int>(s), static_cast<int>(i), xv + dx, (y0 + y1) / 2 - dy / 2, 0.0);
+      double reach = xb + dx;
+      if (has_whisker(o, s, i)) {
+        double wa = X(o.err_lo[s][i]), wb = X(o.err_hi[s][i]);
+        whisker(p, wa, wb, (y0 + y1) / 2, true);
+        reach = std::max(reach, std::max(wa, wb) + (p.fine ? 6 : 1));
+      }
       if (o.values) {
         std::string vl = fmt_val(v, o.prec);
-        double tx = p.cellx(xb + dx) + 0.6, ty = p.celly((y0 + y1) / 2 - dy / 2) - 0.5;
+        double tx = p.cellx(reach) + 0.6, ty = p.celly((y0 + y1) / 2 - dy / 2) - 0.5;
         if (!p.fine) { tx = std::ceil(tx); ty = std::floor(ty + 0.5); }
         if (tx + cp_len(vl) <= clip.right() + 1) sc.text(tx, ty, vl, S.value);
       }
@@ -760,6 +810,7 @@ Plot draw_lines(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, 
 
   double lo = 0, hi = 0;
   ds.bounds(lo, hi);
+  whisker_bounds(o, lo, hi);
   if (area && o.zero_base) {
     if (lo > 0) lo = 0;
     if (hi < 0) hi = 0;
@@ -807,6 +858,10 @@ Plot draw_lines(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o, 
         sf.poly(poly, by_shade(o) ? fill_ink(o, c, s) : Ink(c, panel_color(), 2));
         continue;
       }
+      for (std::size_t k = 0; k < pts.size(); k++) {
+        std::size_t i = static_cast<std::size_t>(idx[k]);
+        if (has_whisker(o, s, i)) whisker(p, p.Y(o.err_lo[s][i]), p.Y(o.err_hi[s][i]), pts[k].x, false);
+      }
       for (std::size_t k = 0; k + 1 < pts.size(); k++)
         sf.line(pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y, Ink(c), width);
       for (std::size_t k = 0; k < pts.size(); k++) {
@@ -849,6 +904,7 @@ Plot draw_scatter(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o
       yhi = std::max(yhi, y);
     }
   if (xhi < xlo) { xlo = ylo = 0; xhi = yhi = 1; }
+  whisker_bounds(o, ylo, yhi);
   double padx = (xhi - xlo) * 0.04, pady = (yhi - ylo) * 0.06;
   xlo -= padx; xhi += padx;
   ylo -= pady; yhi += pady;
@@ -865,6 +921,7 @@ Plot draw_scatter(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o
       double y = cell_at(ds, s, i), x = xval(i);
       if (!std::isfinite(y) || !std::isfinite(x)) continue;
       double px = p.ox + (x - xlo) / (xhi - xlo) * (p.pw - 1), py = p.Y(y);
+      if (has_whisker(o, s, i)) whisker(p, p.Y(o.err_lo[s][i]), p.Y(o.err_hi[s][i]), px, false);
       if (p.fine) {
         p.sf->marker(px, py, static_cast<int>(s - start), mr + 1, Ink(panel_color()));
         p.sf->marker(px, py, static_cast<int>(s - start), mr, Ink(c));
@@ -1414,12 +1471,75 @@ void draw_notes(Scene &sc, Plot &p, const Dataset &ds, const RenderOpts &o, bool
   }
 }
 
+// Take the columns "errors" names out of the data and hand them to the
+// renderers as whisker ends of the series that stay.  False = nothing to do.
+bool split_errors(const Dataset &ds, RenderOpts &o, Dataset &view) {
+  if (o.errors.empty()) return false;
+  auto find = [&](const std::string &name) {
+    for (std::size_t i = 0; i < ds.series.size(); i++)
+      if (!hidden_series(ds.series[i]) && ieq(trim(ds.series[i].name), trim(name))) return static_cast<int>(i);
+    return -1;
+  };
+  std::vector<bool> used(ds.series.size(), false);
+  for (const auto &e : o.errors) {
+    int a = find(e.lo), b = e.plus_minus ? a : find(e.hi);
+    if (a >= 0 && b >= 0) used[static_cast<std::size_t>(a)] = used[static_cast<std::size_t>(b)] = true;
+  }
+  const std::size_t n = ds.nrows();
+  std::vector<std::vector<double>> lo(ds.series.size()), hi(ds.series.size());
+  for (const auto &e : o.errors) {
+    int a = find(e.lo), b = e.plus_minus ? a : find(e.hi), t = e.series.empty() ? -1 : find(e.series);
+    if (a < 0 || b < 0) continue;
+    if (e.series.empty())
+      for (std::size_t i = 0; i < ds.series.size() && t < 0; i++)
+        if (!hidden_series(ds.series[i]) && !used[i]) t = static_cast<int>(i);
+    if (t < 0 || used[static_cast<std::size_t>(t)]) continue;
+    auto &L = lo[static_cast<std::size_t>(t)], &H = hi[static_cast<std::size_t>(t)];
+    L.assign(n, std::nan(""));
+    H.assign(n, std::nan(""));
+    for (std::size_t i = 0; i < n; i++) {
+      double v = cell_at(ds, static_cast<std::size_t>(t), i), x = cell_at(ds, static_cast<std::size_t>(a), i),
+             y = cell_at(ds, static_cast<std::size_t>(b), i);
+      if (e.plus_minus) { L[i] = v - std::fabs(x); H[i] = v + std::fabs(x); }
+      else { L[i] = std::min(x, y); H[i] = std::max(x, y); }
+    }
+  }
+  view = ds;
+  view.series.clear();
+  int cur = -1;
+  for (std::size_t i = 0; i < ds.series.size(); i++) {
+    if (used[i]) continue;
+    if (static_cast<int>(i) == o.cur_series) cur = static_cast<int>(view.series.size());
+    view.series.push_back(ds.series[i]);
+    o.err_lo.push_back(lo[i]);
+    o.err_hi.push_back(hi[i]);
+  }
+  if (o.cur_series >= 0) o.cur_series = cur;
+  return true;
+}
+
 } // namespace
 
 // ---- entry point -------------------------------------------------------------
 
-void render_chart(Scene &sc, Rect r, Dataset &ds, const RenderOpts &o) {
+void render_chart(Scene &sc, Rect r, Dataset &data, const RenderOpts &opts) {
   if (r.w < 8 || r.h < 4) return;
+  // Error columns come out of what is drawn; the rest is drawn from a copy
+  // and its colours handed back for the sheet.
+  RenderOpts o = opts;
+  Dataset view;
+  const bool split = split_errors(data, o, view);
+  Dataset &ds = split ? view : data;
+  struct Handback {
+    Dataset &from, &to;
+    bool on;
+    ~Handback() {
+      if (!on) return;
+      for (auto &t : to.series)
+        for (const auto &f : from.series)
+          if (f.name == t.name) t.color = f.color;
+    }
+  } handback{view, data, split};
   Canvas &cv = sc.cv;
   assign_colors(ds, o);
   std::string type = type_canonical(o.type);

@@ -99,7 +99,7 @@ struct Parser {
                                         "ylabel", "legend",  "values", "grid",   "shadow",   "explode",
                                         "depth",  "bins",    "prec",   "min",    "max",      "xy",
                                         "transpose", "no_header", "labels_col", "series_col", "label_key",
-                                        "delim",  "annotations", "colors"};
+                                        "delim",  "annotations", "colors", "errors"};
       for (const char *k : spec_keys) known.push_back(k);
     }
     std::string hint = nearest(key, known);
@@ -175,6 +175,26 @@ struct Parser {
                       (hint.empty() ? "" : " (did you mean \"" + hint + "\"?)"));
         }
       }
+    }
+  }
+
+  // Error bars name columns of the data; a name that is not there draws nothing.
+  void check_errors(const Block &b, const std::string &where) {
+    const ChartSpec &spec = b.spec.has_errors ? b.spec : b.ds.spec;
+    std::vector<std::string> names;
+    for (const auto &s : b.ds.series) names.push_back(s.name);
+    auto need = [&](const std::string &name, const std::string &role) {
+      if (name.empty()) return;
+      for (const auto &n : names)
+        if (ieq(trim(n), trim(name))) return;
+      std::string hint = nearest(name, names);
+      warn(where + ".errors", "no column \"" + name + "\" for the " + role + ", so these error bars are not drawn" +
+                                  (hint.empty() ? "" : " (did you mean \"" + hint + "\"?)"));
+    };
+    for (const auto &e : spec.errors) {
+      need(e.series, "series");
+      need(e.lo, e.plus_minus ? "+- amount" : "low end");
+      if (!e.plus_minus) need(e.hi, "high end");
     }
   }
 
@@ -284,6 +304,7 @@ struct Parser {
         if (!b.ds.hint.empty()) warn(path + ".data", b.ds.hint);
         check_notes(b, b.spec, path);
         check_colors(b, path);
+        check_errors(b, path);
         if (b.spec.has_series_col || b.spec.has_label_col) { /* shaped on load */ }
       }
     } else if (b.kind == Block::ROWS || b.kind == Block::COLS) {
@@ -730,6 +751,7 @@ void outline_blocks(std::ostringstream &o, const std::vector<Block> &blocks, int
       else o << "  " << b.ds.nrows() << " rows x " << b.ds.series.size() << " series";
       std::size_t notes = (b.spec.has_notes ? b.spec.notes : b.ds.spec.notes).size();
       if (notes) o << ", " << notes << " annotation" << (notes == 1 ? "" : "s");
+      if (b.spec.has_errors || b.ds.spec.has_errors) o << ", error bars";
       o << "\n";
       break;
     }

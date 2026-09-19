@@ -36,6 +36,11 @@ struct RenderOpts {
 
   std::vector<Annotation> notes;
   std::vector<std::pair<std::string, int>> colors; // per series or slice; empty name = by position
+  std::vector<ErrorBars> errors;
+
+  // Filled in by render_chart from `errors`: each drawn series' whisker ends
+  // per row (NaN = none).  Empty when the chart has no error bars.
+  std::vector<std::vector<double>> err_lo, err_hi;
 
   // The data point under the editing cursor, ringed so it can be found.
   int cur_series = -1, cur_index = -1;

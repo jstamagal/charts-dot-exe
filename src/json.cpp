@@ -690,7 +690,7 @@ Dataset from_json_value(const Json &j, const LoadOpts &o) {
   }
 
   if (ds.series.empty()) throw std::runtime_error("json: no numeric series found");
-  number_series(ds, opts.series_col);
+  number_series(ds, opts.series_col, opts.keep);
   if (ds.spec.has_title && ds.title.empty()) ds.title = ds.spec.title;
   return ds;
 }

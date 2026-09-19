@@ -236,6 +236,30 @@ has "broken axis: hbar too" "$TMP/brkh.out" "≈"
 hasnt "an axis from zero is not broken" "$TMP/nobrk.out" "≈"
 "$BIN" "$TMP/brk.csv" --min 110 --png "$TMP/brk.png" > /dev/null 2>&1; check "broken axis: png renders" "$?" "0"
 
+echo "== error bars"
+printf 'k,v,lo,hi,sd\na,10,8,12,1\nb,20,17,22,2\nc,15,,,\n' > "$TMP/err.csv"
+cat > "$TMP/err.json" <<'EOF2'
+{"slides": [
+  {"title": "range", "type": "bar", "data": "err.csv", "series_col": 2, "errors": {"v": ["lo", "hi"]}, "values": true},
+  {"title": "pm", "type": "hbar", "data": "err.csv", "series_col": 2, "errors": "sd", "values": true},
+  {"title": "line", "type": "line", "data": "err.csv", "series_col": 2, "errors": {"v": "sd"}},
+  {"title": "scatter", "type": "scatter", "data": "err.csv", "series_col": 2, "errors": "sd"},
+  {"title": "stacked ignores them", "type": "stacked", "data": "err.csv", "errors": "sd"},
+  {"title": "pie ignores them", "type": "pie", "data": "err.csv", "series_col": 2, "errors": "sd"},
+  {"title": "typo", "type": "bar", "data": "err.csv", "errors": {"v": ["low", "hi"]}}
+]}
+EOF2
+"$BIN" "$TMP/err.json" --check > "$TMP/errchk.out" 2>&1; check "error bars: --check exit 0" "$?" "0"
+has "error bars: a missing column is named" "$TMP/errchk.out" 'no column "low" for the low end'
+has "error bars: with a did-you-mean" "$TMP/errchk.out" 'did you mean "lo"?'
+has "error bars: only the typo warns" "$TMP/errchk.out" "1 warning"
+"$BIN" "$TMP/err.json" --png-dir "$TMP/errpng" > /dev/null 2>&1; check "error bars: every slide renders" "$?" "0"
+"$BIN" "$TMP/err.json" --describe > "$TMP/errd.out" 2>&1
+has "error bars: series_col keeps the error columns" "$TMP/errd.out" "3 rows x 3 series, error bars"
+"$BIN" "$TMP/err.csv" --series-col 2 --print -w 60 -H 16 --no-color > "$TMP/errnone.out" 2>&1
+"$BIN" "$TMP/err.json" --print --slide 1 -w 60 -H 16 --no-color > "$TMP/errone.out" 2>&1
+if cmp -s "$TMP/errnone.out" "$TMP/errone.out"; then bad "error bars: whiskers change the picture"; else ok "error bars: whiskers change the picture"; fi
+
 echo "== a data file that says how it wants to be drawn"
 printf '#chart: type=pie3d, title="Disk use", values\nname,gb\nroot,40\nhome,120\nvar,15\n' > "$TMP/spec.csv"
 "$BIN" --describe "$TMP/spec.csv" > "$TMP/spec.txt" 2>&1; check "#chart: csv describes" "$?" "0"

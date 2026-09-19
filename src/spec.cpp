@@ -79,7 +79,7 @@ bool ChartSpec::any() const {
          has_ylabel || has_legend || has_values || has_grid || has_shadow || has_color || has_ascii ||
          has_depth || has_bins || has_prec || has_explode || has_lo || has_hi || has_width ||
          has_height || has_xy || has_transpose || has_no_header || has_label_col || has_series_col ||
-         has_label_key || has_delim || has_notes;
+         has_label_key || has_delim || has_notes || has_errors;
 }
 
 bool is_spec_key(const std::string &key) {
@@ -94,6 +94,7 @@ bool is_spec_key(const std::string &key) {
       "ymin",        "max",        "hi",         "ymax",        "width",       "w",
       "height",      "h",          "xy",         "transpose",   "no_header",   "header",
       "labels_col",  "label_col",  "series_col", "label_key",   "delim",       "delimiter",
+      "errors",      "error",      "error_bars", "errorbars",   "ranges",
   };
   std::string n = norm_key(key);
   for (const char *k : keys)
@@ -141,6 +142,26 @@ static void set_field(ChartSpec &s, const std::string &rawkey, const Json &v) {
     if (v.is_obj()) for (const auto &kv : v.o) one(kv.first, kv.second);
     else for (const auto &e : v.a) one("", e);
     s.has_series_colors = true;
+
+  } else if (key == "errors" || key == "error" || key == "error_bars" || key == "errorbars" || key == "ranges") {
+    auto one = [&](const std::string &series, const Json &e) {
+      ErrorBars b;
+      b.series = series;
+      if (e.is_str() && !trim(e.s).empty()) {
+        b.lo = trim(e.s);
+        b.plus_minus = true;
+      } else if (e.is_arr() && e.a.size() == 2 && e.a[0].is_str() && e.a[1].is_str()) {
+        b.lo = trim(e.a[0].s);
+        b.hi = trim(e.a[1].s);
+      } else {
+        bad(rawkey, "a column name (+-), a [low, high] pair of column names, or an object of those by series");
+      }
+      s.errors.push_back(b);
+    };
+    s.errors.clear();
+    if (v.is_obj()) for (const auto &kv : v.o) one(kv.first, kv.second);
+    else one("", v);
+    s.has_errors = true;
 
   } else if (key == "palette" && v.is_arr()) {
     s.palette = palette_from_json(v);
@@ -252,6 +273,7 @@ void merge_spec(ChartSpec &b, const ChartSpec &o) {
   M(legend) M(values) M(grid) M(shadow) M(color) M(ascii)
   M(depth) M(bins) M(prec) M(explode) M(lo) M(hi) M(width) M(height)
   M(xy) M(transpose) M(no_header) M(label_col) M(series_col) M(label_key) M(delim) M(notes) M(series_colors)
+  M(errors)
 #undef M
 }
 
@@ -277,6 +299,7 @@ void apply_spec(const ChartSpec &s, RenderOpts &o) {
   if (s.has_xy) o.xy = s.xy;
   if (s.has_notes) o.notes = s.notes;
   if (s.has_series_colors) o.colors = s.series_colors;
+  if (s.has_errors) o.errors = s.errors;
 }
 
 // ---- colours and annotations -------------------------------------------------

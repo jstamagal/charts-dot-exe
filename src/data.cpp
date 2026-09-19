@@ -206,6 +206,16 @@ void apply_spec_to_load(const ChartSpec &s, LoadOpts &o) {
   if (s.has_label_col && !o.has_label_col) { o.label_col = s.label_col; o.has_label_col = true; }
   if (s.has_series_col && !o.has_series_col) { o.series_col = s.series_col; o.has_series_col = true; }
   if (s.has_label_key && !o.has_label_key) { o.label_key = s.label_key; o.has_label_key = true; }
+  for (const auto &e : s.errors) {
+    o.keep.push_back(e.lo);
+    if (!e.plus_minus) o.keep.push_back(e.hi);
+  }
+}
+
+bool kept_column(const std::vector<std::string> &keep, const std::string &name) {
+  for (const auto &k : keep)
+    if (ieq(trim(k), trim(name))) return true;
+  return false;
 }
 
 // Pull "#chart ..." / "#charts ..." lines out of a CSV before the table is
@@ -393,7 +403,10 @@ Dataset load_csv(const std::string &text, const LoadOpts &o) {
       ds.text.push_back(tc);
       continue;
     }
-    if (opts.series_col >= 0 && ci != opts.series_col) { lose("series_col hides the other columns"); continue; }
+    if (opts.series_col >= 0 && ci != opts.series_col && !kept_column(opts.keep, hdr[c])) {
+      lose("series_col hides the other columns");
+      continue;
+    }
     Series s;
     s.name = hdr[c];
     s.col = ci + 1;
@@ -605,7 +618,7 @@ void save_dataset(const Dataset &ds, const std::string &path) {
   }
 }
 
-void number_series(Dataset &ds, int series_col) {
+void number_series(Dataset &ds, int series_col, const std::vector<std::string> &keep) {
   std::string avail;
   int col = 2;
   for (auto &s : ds.series) {
@@ -615,13 +628,13 @@ void number_series(Dataset &ds, int series_col) {
   }
   if (series_col < 0) return;
   const int want = series_col + 1;
-  auto keep = std::find_if(ds.series.begin(), ds.series.end(), [&](const Series &s) { return !is_x(s) && s.col == want; });
-  if (keep == ds.series.end())
+  auto hit = std::find_if(ds.series.begin(), ds.series.end(), [&](const Series &s) { return !is_x(s) && s.col == want; });
+  if (hit == ds.series.end())
     throw std::runtime_error("series_col " + std::to_string(want) +
                              (want == 1 ? " is the labels" : " is past the last series") +
                              "; columns count from 1 with the labels included, so the series are " + avail);
   ds.series.erase(std::remove_if(ds.series.begin(), ds.series.end(),
-                                 [&](const Series &s) { return !is_x(s) && s.col != want; }),
+                                 [&](const Series &s) { return !is_x(s) && s.col != want && !kept_column(keep, s.name); }),
                   ds.series.end());
   ds.text.clear();
   ds.lossy = true;
