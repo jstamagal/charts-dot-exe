@@ -96,6 +96,20 @@ void vt_acquire(int) {
   g_vt_active = 1;
   g_vt_redraw = 1;
 }
+// Graphics mode and process-controlled switching: taking the VT, and taking it
+// back after a stop.  ioctl() only, so a signal handler may call it.
+void vt_take() {
+  if (g_vt_fd < 0) return;
+  struct vt_mode vm;
+  std::memset(&vm, 0, sizeof vm);
+  vm.mode = VT_PROCESS;
+  vm.relsig = SIGUSR1;
+  vm.acqsig = SIGUSR2;
+  ::ioctl(g_vt_fd, VT_SETMODE, &vm);
+  if (::ioctl(g_vt_fd, KDSETMODE, KD_GRAPHICS) == 0) g_vt_graphics = true;
+  g_vt_active = 1;
+  g_vt_redraw = 1;
+}
 void vt_restore() {
   if (g_vt_fd < 0) return;
   struct vt_mode vm;
@@ -232,6 +246,7 @@ public:
     fd_ = -1;
     if (took_vt_) {
       tty_guard_set_cleanup(nullptr);
+      tty_guard_set_resume(nullptr);
       vt_restore();
       g_vt_fd = -1;
       took_vt_ = false;
@@ -258,14 +273,10 @@ private:
     ::sigaction(SIGUSR1, &sa, nullptr);
     sa.sa_handler = vt_acquire;
     ::sigaction(SIGUSR2, &sa, nullptr);
-    struct vt_mode vm;
-    std::memset(&vm, 0, sizeof vm);
-    vm.mode = VT_PROCESS;
-    vm.relsig = SIGUSR1;
-    vm.acqsig = SIGUSR2;
-    ::ioctl(g_vt_fd, VT_SETMODE, &vm);
-    if (::ioctl(g_vt_fd, KDSETMODE, KD_GRAPHICS) == 0) g_vt_graphics = true;
+    vt_take();
+    g_vt_redraw = 0;
     tty_guard_set_cleanup(vt_restore);
+    tty_guard_set_resume(vt_take);
     took_vt_ = true;
   }
 
@@ -347,6 +358,10 @@ public:
   ~TermGfx() override {}
 
 protected:
+  void invalidate() override { // the backdrop goes down again with the next frame
+    last_w_ = last_h_ = 0;
+    last_bg_ = 0xFE;
+  }
   virtual int reserve_rows() const { return 0; }
   virtual std::string cleanup() const { return ""; }
 

@@ -26,6 +26,9 @@ public:
   virtual void show(const Scene &sc) = 0;
   // Something outside wiped the screen (a VT switch): draw again.
   virtual bool needs_redraw() { return false; }
+  // Forget anything remembered about what is on the screen: after a stop and
+  // continue, someone else has drawn there.
+  virtual void invalidate() {}
   virtual void close() {}
 };
 

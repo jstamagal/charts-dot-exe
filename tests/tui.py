@@ -135,6 +135,60 @@ class Session:
             pass
 
 
+class JobSession(Session):
+    """The presenter the way a job-control shell runs it: its own process
+    group, in the foreground, under a parent in the same session.  Only there
+    is a stop honoured; in an orphaned group (a bare pty.fork) the kernel
+    drops SIGTSTP so nobody is left stopped with no one to continue them."""
+
+    def __init__(self, args, cols=110, rows=32):
+        r, w = os.pipe()
+        self.pid, self.fd = pty.fork()
+        if self.pid == 0:
+            os.close(r)
+            job = os.fork()
+            if job == 0:
+                os.setpgid(0, 0)
+                while os.tcgetpgrp(0) != os.getpgrp():  # not yet the foreground: wait
+                    time.sleep(0.01)
+                e = dict(os.environ, TERM="xterm-256color")
+                for k in ("TMUX", "CHARTS_GFX", "NO_COLOR"):
+                    e.pop(k, None)
+                os.execve(BIN, [BIN] + args, e)
+            try:
+                os.setpgid(job, job)
+            except OSError:
+                pass
+            os.tcsetpgrp(0, job)
+            os.write(w, str(job).encode())
+            os.close(w)
+            while True:  # a shell's wait: stops come and go, the exit ends it
+                _, st = os.waitpid(job, os.WUNTRACED)
+                if os.WIFEXITED(st) or os.WIFSIGNALED(st):
+                    os._exit(0)
+        os.close(w)
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        self.job = int(os.read(r, 32) or b"0")
+        os.close(r)
+        self.raw = b""
+        self.read(0.7)
+
+    def stopped(self):
+        try:
+            with open("/proc/%d/stat" % self.job) as f:
+                return f.read().rsplit(")", 1)[1].split()[0] == "T"
+        except OSError:
+            return False
+
+    def kill(self):
+        for sig in (signal.SIGCONT, signal.SIGKILL):
+            try:
+                os.kill(self.job, sig)
+            except OSError:
+                pass
+        super().kill()
+
+
 def workdir():
     d = tempfile.mkdtemp(prefix="charts-tui-")
     for name in os.listdir(EXAMPLES):
@@ -356,6 +410,24 @@ os.kill(s.pid, signal.SIGTERM)
 s.wait_exit()
 s.read(0.3)
 check("and after SIGTERM", b"\x1b[?25h" in s.raw)
+s.kill()
+
+s = JobSession([deck, "--gfx", "cells"])
+cooked = lambda: bool(termios.tcgetattr(s.fd)[3] & termios.ICANON)
+check("the presenter runs raw", not cooked())
+mark = len(s.raw)
+os.kill(s.job, signal.SIGTSTP)
+s.read(0.5)
+check("a stop from outside stops it", s.stopped())
+check("with the terminal handed back cooked", cooked())
+check("and the cursor shown", b"\x1b[?25h" in s.raw[mark:])
+mark = len(s.raw)
+os.kill(s.job, signal.SIGCONT)
+s.read(1.0)
+check("a continue takes the terminal back raw", not cooked())
+check("and draws the slide again", b"\x1b[H" in s.raw[mark:] and len(s.screen().strip()) > 0)
+s.keys("q")
+check("and it still quits cleanly", s.wait_exit() is not None)
 s.kill()
 
 s = Session([deck, "--gfx", "cells"], cols=110, rows=32)

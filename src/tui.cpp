@@ -112,7 +112,7 @@ public:
       int c = 0, r = 0;
       disp_->grid(c, r);
       if (c != cols || r != rows) { cols = c; rows = r; dirty_ = true; }
-      if (disp_->needs_redraw()) dirty_ = true;
+      if (must_redraw()) dirty_ = true;
       poll_files();
       if (message_ttl_ > 0 && --message_ttl_ == 0) { message_.clear(); dirty_ = true; }
       if (dirty_) { draw(); dirty_ = false; }
@@ -276,6 +276,15 @@ private:
     return "e edit  a annotate  t type  p palette  v values  s save  ? help  q quit";
   }
 
+  // The display lost its picture: a VT switch, or a stop and continue.
+  bool must_redraw() {
+    if (tty_guard_continued()) {
+      disp_->invalidate();
+      return true;
+    }
+    return disp_->needs_redraw();
+  }
+
   void draw() {
     int cols = 0, rows = 0;
     disp_->grid(cols, rows);
@@ -403,7 +412,7 @@ private:
 
   std::string wait_key() {
     for (;;) {
-      if (disp_->needs_redraw()) draw();
+      if (must_redraw()) draw();
       std::string k = read_key(250);
       if (!k.empty() && k != "unknown") return k;
     }
