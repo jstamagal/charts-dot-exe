@@ -628,6 +628,36 @@ for t in bar stacked hbar area scatter; do
   has "annotation callout on a $t chart" "$TMP/shape-7-$t.out" "callout-text"
 done
 
+echo "== decks: like"
+printf 'k,v\na,1\nb,2\nc,3\n' > "$TMP/like.csv"
+cat > "$TMP/like.json" <<'EOF2'
+{"slides": [
+  {"title": "quiet", "type": "bar", "data": "like.csv", "min": 0, "max": 5, "colors": ["grey"], "notes": "say this"},
+  {"title": "loud", "like": 1, "type": "hbar", "annotations": [{"at": "b", "text": "this one"}]},
+  {"title": "as a block", "blocks": [{"like": "slides[1]", "at": [0, 0, 6, 12]}, {"text": "hi", "at": [6, 0, 6, 12]}]}
+]}
+EOF2
+"$BIN" "$TMP/like.json" --check > "$TMP/like.out" 2>&1; check "like: a clean deck" "$?" "0"
+"$BIN" "$TMP/like.json" --describe > "$TMP/liked.out" 2>&1
+has "like: the chart comes along" "$TMP/liked.out" "chart hbar  like.csv  3 rows x 1 series, 1 annotation"
+check "like: the slide's notes stay behind" "$(grep -c '(notes)' "$TMP/liked.out")" "1"
+has "like: a path works too" "$TMP/liked.out" "3. as a block"
+"$BIN" "$TMP/like.json" --png-dir "$TMP/likepng" > /dev/null 2>&1; check "like: renders" "$?" "0"
+printf '{"slides":[{"title":"a","like":7},{"title":"b","blocks":[{"like":"slides[1].blocks[0]"}]},{"title":"c","blocks":[{"like":"slides[2].blocks[1]"},{"like":"slides[2].blocks[0]"}]}]}' > "$TMP/likebad.json"
+"$BIN" "$TMP/likebad.json" --check > "$TMP/likebad.out" 2>&1; check "like: bad targets are errors" "$?" "1"
+has "like: a slide that is not there" "$TMP/likebad.out" "slides[0].like: wants a slide number from 1 to 3"
+has "like: itself" "$TMP/likebad.out" "slides[1].blocks[0].like: points at itself"
+has "like: a loop" "$TMP/likebad.out" "goes round in a circle"
+check "like: one error each, no follow-on noise" "$(grep -c '^error' "$TMP/likebad.out")" "4"
+
+echo "== sideways charts: value lines stand up, category lines lie down"
+printf 'k,v\na,10\nb,20\nc,30\n' > "$TMP/side.csv"
+printf '{"slides":[{"title":"t","type":"hbar","data":"side.csv","annotations":[{"y":15,"text":"target"},{"x":"b","text":"this row"}]}]}' > "$TMP/side.json"
+"$BIN" "$TMP/side.json" --check > "$TMP/side.chk" 2>&1; check "hbar annotations: clean" "$?" "0"
+"$BIN" "$TMP/side.json" --print -w 70 -H 20 --no-color > "$TMP/side.out" 2>&1
+has "hbar: the value line is labelled" "$TMP/side.out" "target"
+has "hbar: the category line is drawn and labelled" "$TMP/side.out" "this row"
+
 echo "== decks: --png"
 "$BIN" "$DECK/deck.json" --png "$TMP/s1.png" > "$TMP/png.stdout" 2>&1; check "--png exits 0" "$?" "0"
 pngok "--png default is 120x33 cells = 960x528, 4-bit, CRCs, IDAT" "$TMP/s1.png" 960 528

@@ -198,7 +198,75 @@ struct Parser {
     }
   }
 
+  // "like": 3 (slide 3, as the footer counts) or "like": "slides[2].blocks[0]":
+  // start from that block's keys and let this one's own keys win.  A build
+  // is then two slides and one chart, written once.
+  bool resolve_like(const Json &j, Json &out, std::string &why, int depth) {
+    const Json &like = *j.get("like");
+    if (depth > 8) { why = "goes round in a circle (or more than 8 deep)"; return false; }
+    const Json *t = nullptr;
+    bool whole_slide = false;
+    if (like.is_num()) {
+      const Json *slides = d.root.get("slides");
+      const int n = slides && slides->is_arr() ? static_cast<int>(slides->a.size()) : 0;
+      const int k = static_cast<int>(like.n);
+      if (like.n != k || k < 1 || k > n) {
+        why = "wants a slide number from 1 to " + std::to_string(n) + ", or a path like \"slides[2].blocks[0]\"";
+        return false;
+      }
+      const Json &sl = slides->a[static_cast<std::size_t>(k - 1)];
+      const Json *blocks = sl.get("blocks");
+      if (blocks && blocks->is_arr()) {
+        for (const auto &b : blocks->a)
+          if (!t && b.is_obj() && b.get("data")) t = &b; // the chart, when the slide has one
+        if (!t && !blocks->a.empty()) t = &blocks->a[0];
+      } else {
+        t = &sl;
+        whole_slide = true;
+      }
+    } else if (like.is_str()) {
+      t = d.node(like.s);
+      whole_slide = like.s.find('.') == std::string::npos; // "slides[2]"
+    } else {
+      why = "wants a slide number, or a path like \"slides[2].blocks[0]\"";
+      return false;
+    }
+    if (!t || !t->is_obj()) { why = "there is no block at " + like.str_or(fmt_val(like.n)); return false; }
+    if (t == &j) { why = "points at itself"; return false; }
+    Json base = *t;
+    if (base.get("like")) {
+      Json deeper;
+      if (!resolve_like(base, deeper, why, depth + 1)) return false;
+      base = deeper;
+    }
+    // A slide's title and notes are the slide's, not its chart's; where a
+    // block sits is its own business.
+    static const std::vector<std::string> SLIDE_ONLY = {"title", "subtitle", "notes", "layout", "blocks"};
+    out = Json::object();
+    for (const auto &kv : base.o)
+      if (kv.first != "at" && kv.first != "weight" && !(whole_slide && in(SLIDE_ONLY, kv.first))) out.set(kv.first, kv.second);
+    for (const auto &kv : j.o)
+      if (kv.first != "like") out.set(kv.first, kv.second);
+    return true;
+  }
+
   Block block(const Json &j, const std::string &path, bool title_taken) {
+    if (j.is_obj() && j.get("like")) {
+      Json merged;
+      std::string why;
+      if (resolve_like(j, merged, why, 0)) return block(merged, path, title_taken);
+      err(path + ".like", why);
+      Json rest = j;
+      rest.erase("like");
+      if (!rest.get("data") && !rest.get("text") && !rest.get("bullets") && !rest.get("stat") && !rest.get("rows") &&
+          !rest.get("cols")) {
+        Block b; // the like error says it all
+        b.path = path;
+        b.kind = Block::TEXT;
+        return b;
+      }
+      return block(rest, path, title_taken);
+    }
     Block b;
     b.path = path;
     if (!j.is_obj()) {
@@ -322,7 +390,8 @@ struct Parser {
     s.path = path;
     if (!j.is_obj()) { err(path, "a slide must be an object"); return s; }
     // A slide may be its one block: {"title":..., "type":"bar", "data":...}
-    const bool shorthand = !j.get("blocks") && (j.get("data") || j.get("text") || j.get("bullets") || j.get("stat"));
+    const bool shorthand =
+        !j.get("blocks") && (j.get("data") || j.get("text") || j.get("bullets") || j.get("stat") || j.get("like"));
     for (const auto &kv : j.o) {
       const std::string &k = kv.first;
       const Json &v = kv.second;

@@ -153,7 +153,14 @@ struct Plot {
   int sx = 1, sy = 2;
   std::vector<Anchor> anchors;
   std::vector<double> slot_cx; // category centres, pixels
+  std::vector<double> slot_cy; // the same down the side, when the value axis runs across
+  bool across = false;         // hbar, dumbbell: values run left to right
   mutable std::vector<Box> taken; // value labels already down: callouts keep off them
+
+  double X(double v) const { // the value axis of a chart laid on its side
+    double f = (v - lo) / (hi - lo);
+    return ox + std::max(0.0, std::min(1.0, f)) * (pw - 1);
+  }
 
   double Y(double v) const {
     double f = (v - lo) / (hi - lo);
@@ -713,12 +720,9 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
   p.ox = p.sx;
   p.pw = gw * p.sx;
   p.ph = gh * p.sy;
+  p.across = true;
   Surface &sf = *p.sf;
-  auto X = [&](double v) {
-    double f = (v - lo) / (hi - lo);
-    f = std::max(0.0, std::min(1.0, f));
-    return p.ox + f * (p.pw - 1);
-  };
+  auto X = [&](double v) { return p.X(v); };
 
   if (p.fine) {
     sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
@@ -755,6 +759,7 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
 
   for (std::size_t i = 0; i < n; i++) {
     double gy0 = i * slot + (slot - group) / 2 + dy / 2;
+    p.slot_cy.push_back(gy0 + group / 2);
     std::string lab = i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1);
     lab = trunc_to(lab, static_cast<std::size_t>(gut - 1));
     double ly = p.celly(gy0 + group / 2) - 0.5;
@@ -802,7 +807,10 @@ Plot draw_hbars(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &o) 
         std::string vl = fmt_point(ds.series[s], v, o.prec);
         double tx = p.cellx(reach) + 0.6, ty = p.celly((y0 + y1) / 2 - dy / 2) - 0.5;
         if (!p.fine) { tx = std::ceil(tx); ty = std::floor(ty + 0.5); }
-        if (tx + cp_len(vl) <= clip.right() + 1) sc.text(tx, ty, vl, S.value);
+        if (tx + cp_len(vl) <= clip.right() + 1) {
+          sc.text(tx, ty, vl, S.value);
+          p.taken.push_back(Box{tx, ty, static_cast<double>(cp_len(vl)), 1}); // callouts keep off it
+        }
       }
     }
   }
@@ -850,8 +858,9 @@ Plot draw_dumbbell(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &
   p.ox = p.sx;
   p.pw = gw * p.sx;
   p.ph = gh * p.sy;
+  p.across = true;
   Surface &sf = *p.sf;
-  auto X = [&](double v) { return p.ox + std::max(0.0, std::min(1.0, (v - lo) / (hi - lo))) * (p.pw - 1); };
+  auto X = [&](double v) { return p.X(v); };
 
   if (p.fine) sf.hline(p.ox - 1, p.ox + p.pw - 1, p.ph, Ink(S.axis));
   else sc.cv.hline(gx, gy + gh, gw, G.h, S.axis);
@@ -877,6 +886,7 @@ Plot draw_dumbbell(Scene &sc, Rect r, Rect clip, Dataset &ds, const RenderOpts &
   const Ink bar(p.fine ? 7 : 8);
   for (std::size_t i = 0; i < n; i++) {
     const double cy = std::floor(i * slot + slot / 2);
+    p.slot_cy.push_back(cy);
     std::string lab = trunc_to(i < ds.labels.size() ? ds.labels[i] : std::to_string(i + 1), static_cast<std::size_t>(gut - 1));
     double ly = p.celly(cy) - 0.5;
     if (!p.fine) ly = std::floor(ly + 0.5);
@@ -1461,6 +1471,41 @@ void draw_notes(Scene &sc, Plot &p, const Dataset &ds, const RenderOpts &o, bool
     b.w = static_cast<double>(tw) + 2;
     b.h = static_cast<double>(lines.size());
 
+    // On a chart laid on its side a value line stands up and a category
+    // line lies down: swap them and draw the other one.
+    if (p.across && (a.kind == Annotation::HLINE || a.kind == Annotation::VLINE)) {
+      int at = -1;
+      if (a.kind == Annotation::HLINE) {
+        if (a.value < p.lo || a.value > p.hi) continue;
+        at = static_cast<int>(std::lround(p.X(a.value)));
+      } else {
+        int row = row_of(a);
+        if (row < 0 || row >= static_cast<int>(p.slot_cy.size())) continue;
+        at = static_cast<int>(p.slot_cy[static_cast<std::size_t>(row)]);
+      }
+      const bool up = a.kind == Annotation::HLINE;
+      uint8_t lc = a.color >= 0 ? static_cast<uint8_t>(a.color) : S.note_bg;
+      for (int t = 0; t < (up ? p.ph : p.pw); t++)
+        if (!p.fine || (t / 6) % 2 == 0) {
+          if (up) { sf.set(at, t, Ink(lc)); if (p.fine) sf.set(at + 1, t, Ink(lc)); }
+          else { sf.set(p.ox + t, at, Ink(lc)); if (p.fine) sf.set(p.ox + t, at - 1, Ink(lc)); }
+        }
+      if (!a.text.empty()) {
+        if (up) {
+          b.x = p.cellx(at) + 0.5;
+          if (b.x + b.w > p.clip.right() + 1) b.x = p.cellx(at) - b.w - 0.5;
+          b.y = p.cells.y;
+        } else {
+          b.x = p.cellx(p.ox + p.pw) - b.w;
+          b.y = p.celly(at) - b.h - (p.fine ? 0.15 : 0);
+          if (b.y < p.clip.y) b.y = p.celly(at) + 0.2;
+        }
+        if (!p.fine) { b.x = std::floor(b.x + 0.5); b.y = std::floor(b.y + 0.5); }
+        text_box(b.x, b.y, lines, fg, bg);
+        placed.push_back(b);
+      }
+      continue;
+    }
     if (a.kind == Annotation::HLINE && !pie) {
       if (a.value < p.lo || a.value > p.hi) continue;
       int y = static_cast<int>(std::lround(p.Y(a.value)));
