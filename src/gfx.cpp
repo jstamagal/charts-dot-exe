@@ -96,25 +96,31 @@ void Surface::rect(double x0, double y0, double x1, double y1, Ink k) {
     for (int x = ax; x < bx; x++) px_[idx(x, y)] = k;
 }
 
+// The runs below are cut to the surface before they are walked: set() would
+// drop the pixels anyway, and a line to 1e9 should not cost 1e9 steps.
 void Surface::hline(int x0, int x1, int y, Ink k) {
   if (x1 < x0) std::swap(x0, x1);
+  x0 = std::max(x0, 0);
+  x1 = std::min(x1, W_ - 1);
   for (int x = x0; x <= x1; x++) set(x, y, k);
 }
 
 void Surface::vline(int x, int y0, int y1, Ink k) {
   if (y1 < y0) std::swap(y0, y1);
+  y0 = std::max(y0, 0);
+  y1 = std::min(y1, H_ - 1);
   for (int y = y0; y <= y1; y++) set(x, y, k);
 }
 
 void Surface::dotted_h(int x0, int x1, int y, Ink k, int gap) {
   if (gap < 1) gap = 1;
-  for (int x = x0; x <= x1; x++)
+  for (int x = std::max(x0, 0); x <= std::min(x1, W_ - 1); x++)
     if (x % gap == 0) set(x, y, k);
 }
 
 void Surface::dotted_v(int x, int y0, int y1, Ink k, int gap) {
   if (gap < 1) gap = 1;
-  for (int y = y0; y <= y1; y++)
+  for (int y = std::max(y0, 0); y <= std::min(y1, H_ - 1); y++)
     if (y % gap == 0) set(x, y, k);
 }
 
@@ -166,9 +172,10 @@ void Surface::poly(const std::vector<Pt> &p, Ink k) {
 }
 
 void Surface::disc(double cx, double cy, double r, Ink k) {
-  double ry = r / aspect();
-  int y0 = static_cast<int>(std::floor(cy - ry)), y1 = static_cast<int>(std::ceil(cy + ry));
-  int x0 = static_cast<int>(std::floor(cx - r)), x1 = static_cast<int>(std::ceil(cx + r));
+  if (!(r > 0) || !std::isfinite(cx) || !std::isfinite(cy)) return;
+  const double ry = r / aspect();
+  const int y0 = clamp_int(std::floor(cy - ry), 0, H_ - 1), y1 = clamp_int(std::ceil(cy + ry), 0, H_ - 1);
+  const int x0 = clamp_int(std::floor(cx - r), 0, W_ - 1), x1 = clamp_int(std::ceil(cx + r), 0, W_ - 1);
   for (int y = y0; y <= y1; y++)
     for (int x = x0; x <= x1; x++) {
       double dx = (x + 0.5 - cx) / r, dy = (y + 0.5 - cy) / ry;
@@ -177,10 +184,10 @@ void Surface::disc(double cx, double cy, double r, Ink k) {
 }
 
 void Surface::ring(double cx, double cy, double r, Ink k) {
-  double ry = r / aspect();
-  double in = std::max(0.0, r - std::max(1.0, r * 0.35));
-  int y0 = static_cast<int>(std::floor(cy - ry)), y1 = static_cast<int>(std::ceil(cy + ry));
-  int x0 = static_cast<int>(std::floor(cx - r)), x1 = static_cast<int>(std::ceil(cx + r));
+  if (!(r > 0) || !std::isfinite(cx) || !std::isfinite(cy)) return;
+  const double ry = r / aspect(), in = std::max(0.0, r - std::max(1.0, r * 0.35));
+  const int y0 = clamp_int(std::floor(cy - ry), 0, H_ - 1), y1 = clamp_int(std::ceil(cy + ry), 0, H_ - 1);
+  const int x0 = clamp_int(std::floor(cx - r), 0, W_ - 1), x1 = clamp_int(std::ceil(cx + r), 0, W_ - 1);
   for (int y = y0; y <= y1; y++)
     for (int x = x0; x <= x1; x++) {
       double dx = (x + 0.5 - cx), dy = (y + 0.5 - cy) * aspect();
@@ -191,6 +198,7 @@ void Surface::ring(double cx, double cy, double r, Ink k) {
 
 // 0 disc, 1 square, 2 diamond, 3 triangle, 4 cross, 5 ring, 6 inverted triangle
 void Surface::marker(double cx, double cy, int shape, double r, Ink k) {
+  if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(r)) return;
   if (r < 1) {
     set(static_cast<int>(std::lround(cx - 0.5)), static_cast<int>(std::lround(cy - 0.5)), k);
     return;
