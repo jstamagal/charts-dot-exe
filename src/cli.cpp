@@ -12,7 +12,7 @@
 
 namespace ch {
 
-static const char *kVersion = "2.0.0";
+static const char *kVersion = "0.1.0";
 
 void print_version(FILE *f) { std::fprintf(f, "charts %s\n", kVersion); }
 
