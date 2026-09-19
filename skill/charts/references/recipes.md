@@ -82,6 +82,74 @@ descending first.
 Give each chart a short `title`; it goes in the frame. Small panels: ≤ 9
 categories, skip `values`.
 
+## A build: the same chart twice, written once
+
+```json
+{"title": "Returns ran at a dozen a month...", "type": "line", "data": "cabinets.csv",
+ "series_col": 3, "min": 0, "max": 40, "colors": ["grey"]},
+{"title": "...except June, when a bad batch came back", "like": 3,
+ "annotations": [{"at": "Jun", "text": "38 returns: batch J-114", "color": "red"},
+                 {"y": 15, "text": "normal month", "color": "green"}]}
+```
+
+`like` counts slides as the footer does (this pair is slides 3 and 4). The
+second slide inherits every key of the first's chart and adds only the story.
+Pin `min`/`max` so nothing moves between the two.
+
+## Error bars: the spread beside the mean
+
+```json
+{"title": "A local GPU last is 45% faster, well past the noise",
+ "type": "bar", "data": "layouts.csv", "series_col": 2, "values": true,
+ "errors": {"tg": ["tg min", "tg max"]}, "ylabel": "tokens/s"}
+```
+
+`errors` names columns of the same file: `["low", "high"]` for a range, one
+column for ±. They become whiskers, not bars, and `series_col` keeps them.
+
+## Before and after
+
+```json
+{"title": "The 2.5 GbE link lifted every RPC layout", "type": "dumbbell",
+ "data": "links.csv", "values": true, "xlabel": "tokens/s",
+ "colors": {"1 GbE": "grey", "2.5 GbE": "yellow"}}
+```
+
+A column per state (`layout,1 GbE,2.5 GbE`). The arrow points at the last
+column; grey the "before" so the eye lands on where things ended up.
+
+## How it works: a flow beside the finding
+
+```json
+{"title": "8 ms per token is one 1 MB logits vector on 1 GbE", "layout": "cols",
+ "blocks": [
+   {"flow": ["tokens", "CUDA0", {"id": "yoda", "text": "yoda\nrpc0 + rpc1"},
+             {"id": "last", "text": "last device\n(lm_head)", "color": "red"}],
+    "edges": [["tokens", "CUDA0"], ["CUDA0", "yoda"], ["yoda", "last"], ["last", "tokens", "1 MB/token"]],
+    "dir": "down", "weight": 2},
+   {"text": ["# The arithmetic", "", "- 248,320 x 4 B = **0.99 MB**", "- 1 GbE: ~117 MB/s",
+             "- predicted **8.5 ms**, measured **8.1**"], "weight": 1}
+ ]}
+```
+
+Name the steps and the arrows; charts lays them out. Three to five boxes, one
+of them coloured (where the cost is), the arrow that matters labelled.
+
+## Free drawing
+
+```json
+{"title": "The hits stand by the door",
+ "shapes": [
+   {"rect": [0.3, 0.3, 11.4, 11.2], "fill": false, "border": "grey", "width": 2},
+   {"rect": [0.9, 7.8, 2.4, 2.8], "text": "Laser\nLlama", "color": "green", "depth": 2, "shadow": true},
+   {"ellipse": [7.2, 6.4, 2.6, 3.2], "text": "change", "color": "white", "dither": 2},
+   {"arrow": [[9.6, 11.4], [9.6, 10.1]], "width": 3},
+   {"label": [8.5, 10.6], "text": "door", "align": "right"}
+ ]}
+```
+
+A 12 × 12 grid over the block. Draw only what makes the point.
+
 ## Big-number slide
 
 ```json

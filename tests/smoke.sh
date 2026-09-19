@@ -872,7 +872,7 @@ os.makedirs(outdir, exist_ok=True)
 for f in ("revenue.csv", "quarterly.csv"):
     open(os.path.join(outdir, f), "wb").write(open(os.path.join(examples, f), "rb").read())
 
-TYPES = ["bar", "stacked", "hbar", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table",
+TYPES = ["bar", "stacked", "hbar", "dumbbell", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table",
          "column", "xy", "", "barr", "PIE", 7, None]
 WORDS = ["", "a", "Apr", "revenue", "日本語", "🎉🎉", "x" * 300, "\x1b[2J", "nan", "-", "0", "‮", "a\nb", "\t", "é" * 40]
 NUMS = [0, 1, -1, 0.5, 1e308, -1e308, 1e-300, 2**53, -2**63, 2**64, 12345678901234567890, 1e400, -0.0, 3, 42, 100, 99999]
@@ -919,12 +919,43 @@ def chart():
                  ("min", num()), ("max", num()), ("prec", rng.choice([0, 2, 50, -3])), ("bins", rng.choice([1, 0, -2, 10**7, 8])),
                  ("palette", rng.choice(["cga", "mono", "nope", 3])), ("frame", rng.choice(["double", "none", "zig"])),
                  ("xy", rng.choice([True, False])), ("transpose", rng.choice([True, False])), ("annotations", annotations()),
+                 ("errors", rng.choice(["b", "q", ["a", "b"], {"a": "b"}, {"p": ["q", "p"]}, {"x": ["y"]}, 3, [], {"": ""}])),
+                 ("series_col", rng.choice([1, 2, 3, 9, 0, "x"])),
                  ("weight", rng.choice([1, 2, 0, -1, 1e9, "x"])), ("at", [rng.choice([0, 3, 6, 11, 12, 13, -1, 1e9, "a"]) for _ in range(rng.choice([4, 4, 3, 5]))])):
         if rng.random() < 0.35: b[k] = v
     return b
 
+def shapes():
+    out = []
+    for _ in range(rng.randrange(0, 9)):
+        k = rng.choice(["rect", "ellipse", "poly", "line", "arrow", "label", "nope"])
+        if k in ("rect", "ellipse"): g = [rng.choice([0, 1, 5.5, 12, 13, -1, 1e9, 0.001, "a"]) for _ in range(rng.choice([4, 4, 3]))]
+        elif k == "label": g = [num(), num()][:rng.choice([2, 2, 1])]
+        else: g = [[rng.uniform(-2, 14), rng.uniform(-2, 14)] for _ in range(rng.choice([0, 1, 2, 3, 7, 60]))]
+        sh = {k: g}
+        for kk, v in (("text", word()), ("color", rng.choice(["red", 99, "nope", 3])), ("depth", rng.choice([0, 6, 9, "x"])),
+                      ("dither", rng.choice([0, 3, 4])), ("shadow", rng.choice([True, 0])), ("width", rng.choice([1, 4, 99])),
+                      ("dash", True), ("head", rng.choice(["both", "zz", True, "start"])), ("size", rng.choice([1, 3, 0])),
+                      ("fill", rng.choice([False, "none", 1])), ("border", rng.choice(["white", "none", 77])), ("align", rng.choice(["right", "up"]))):
+            if rng.random() < 0.4: sh[kk] = v
+        out.append(sh if rng.random() < 0.9 else junk())
+    return out
+
+def flow():
+    names = [word() or "n%d" % i for i in range(rng.choice([0, 1, 2, 5, 12, 30]))]
+    b = {"flow": [n if rng.random() < 0.7 else {"id": n, "text": word(), "color": rng.choice(["red", 42])} for n in names]}
+    if rng.random() < 0.6 and names:
+        b["edges"] = [[rng.choice(names + ["ghost"]), rng.choice(names), word()][:rng.choice([2, 3, 3, 1])] for _ in range(rng.randrange(0, 20))]
+    if rng.random() < 0.3 and names: b["labels"] = {rng.choice(names + ["x"]) + rng.choice([">", "->", ""]) + rng.choice(names + ["y"]): word()}
+    for kk, v in (("dir", rng.choice(["down", "right", "up"])), ("box", True), ("title", word())):
+        if rng.random() < 0.4: b[kk] = v
+    return b
+
 def block(depth=0):
     r = rng.random()
+    if r < 0.06: return {"shapes": shapes(), "box": rng.choice([True, False])}
+    if r < 0.12: return flow()
+    if r < 0.15: return {"like": rng.choice([1, 2, 0, -1, 99, 1.5, "slides[0]", "slides[1].blocks[0]", "slides[0].blocks[9]", "nope", None, []])}
     if depth < 8 and r < 0.25: return {rng.choice(["rows", "cols"]): [block(depth + 1) for _ in range(rng.randrange(0, 4))]}
     if r < 0.55: return chart()
     if r < 0.70: return {"text": rng.choice([word(), [word() for _ in range(rng.randrange(0, 6))], "# h\n## s\n- b\n> a\n**e**", 5]), "size": rng.choice([1, 4, 0, 99]), "align": rng.choice(["left", "center", "right", "up"]), "box": True}
@@ -943,6 +974,7 @@ def slide():
     if r < 0.30:
         s = chart(); s["title"] = word(); return s
     if r < 0.35: return {"title": "deep", "blocks": [deep(rng.choice([5, 40, 400]))]}
+    if r < 0.38: return {"title": word(), "like": rng.choice([1, 2, 3, "slides[0]", "slides[2].blocks[1]", 0, "x"]), "type": rng.choice(TYPES)}
     if r < 0.40: return junk()
     return {"title": word(), "layout": rng.choice(["auto", "cols", "rows", "grid", "spiral"]), "notes": word(),
             "blocks": [block() for _ in range(rng.randrange(0, 7))]}

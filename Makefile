@@ -19,7 +19,7 @@ OBJ   := $(SRC:src/%.cpp=build/%.o)
 DEP   := $(OBJ:.o=.d)
 BIN   := charts
 
-.PHONY: all asan test install install-skill uninstall static clean run
+.PHONY: all asan test install install-skill uninstall static clean run skill gallery
 
 all: $(BIN)
 
@@ -89,7 +89,14 @@ install-skill: skill
 	mkdir -p $(SKILLDIR)/charts
 	cp -r skill/charts/. $(SKILLDIR)/charts/
 
+# The gallery's pictures are rendered, never committed: they cannot go stale.
+gallery: all
+	@./$(BIN) skill/charts/assets/gallery/deck.json --check
+	@./$(BIN) skill/charts/assets/gallery/deck.json --png-dir skill/charts/assets/gallery/png > /dev/null
+	@echo "skill/charts/assets/gallery/png rendered"
+
 # SKILL.md is `charts -h` with a front page: one source of truth.
-skill: all
+skill: all gallery
 	@{ cat skill/charts/frontmatter.md; echo '```text'; ./$(BIN) -h; echo '```'; } > skill/charts/SKILL.md
-	@echo "skill/charts/SKILL.md regenerated from charts -h"
+	@cp docs/DECK.md skill/charts/references/deck-format.md
+	@echo "skill/charts: SKILL.md from charts -h, references/deck-format.md from docs/DECK.md"

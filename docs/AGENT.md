@@ -11,8 +11,12 @@ files, checks them, looks at PNGs of them, and hands over one command.
 # 2. deck: write deck.json            (charts --schema, charts --example deck)
 charts deck.json --check              # 3. every problem, by JSON path; exit 1 on errors
 charts deck.json --png-dir /tmp/deck  # 4. render, then LOOK at the PNGs
-charts deck.json                      # 5. what the human runs
+charts deck.json --launcher q3        # 5. writes ~/.local/bin/q3, a small sh script
 ```
+
+Hand the human the command (`q3`) and the path it printed. The launcher finds
+charts, opens a terminal if it was started without one, and lets charts pick
+framebuffer, kitty, sixel or cells from wherever it lands.
 
 Step 4 is not optional. `--check` knows the deck is valid; only the picture
 shows a legend crowding a pie, a callout over the wrong bar, twelve labels

@@ -58,7 +58,7 @@ Useful flags when the defaults guess wrong:
 | `--delim C` | force the delimiter |
 | `--no-header` | treat row 1 as data |
 | `--labels-col N` | column N (1-based) holds the labels |
-| `--series-col N` | keep only column N as a series |
+| `--series-col N` | keep only column N as a series; columns count from 1 with the labels included (in `name,a,b`, `a` is 2) |
 | `--transpose` | swap rows and columns before anything else |
 | `--xy` | the first numeric column is the X axis, not a series |
 
@@ -180,5 +180,10 @@ and series, and `s` saves them where they came from:
 - **Inline deck data** — written back into the deck.
 
 A file is never overwritten when that would lose something: if the loader
-dropped a text column, read the file transposed, or kept only `series_col`, the
-sheet still works for trying numbers out but says the file is read-only.
+set a text column aside, read the file transposed, or kept only `series_col`,
+the sheet still works for trying numbers out but says the file is read-only.
+The same goes for inline data read through `series_col`.
+
+Columns of words are kept for tables and ignored by every other chart. An
+empty field is a gap, as `null` is in JSON. `charts file.csv --describe` lists
+every series with the column number `series_col` takes.

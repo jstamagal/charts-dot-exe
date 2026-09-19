@@ -101,6 +101,76 @@ One big number. `delta` is green with an up arrow when it starts with `+`, red
 with a down arrow when it starts with `-`. Three or four in a row make a KPI
 strip.
 
+### flow — `flow`
+
+```json
+{"flow": ["tokens", "CUDA0", {"id": "yoda", "text": "yoda\n2 GPUs", "color": "red"}, "CUDA1"],
+ "labels": {"yoda>CUDA1": "1 MB/token"}}
+{"flow": ["prompt", "local", "remote", "logits"],
+ "edges": [["prompt", "local", "4 MiB"], ["prompt", "remote"], ["local", "logits"],
+           {"from": "remote", "to": "logits", "text": "1 MB", "dash": true, "color": "red"}],
+ "dir": "down", "box": true, "title": "one token"}
+```
+
+Boxes and arrows, laid out for you: name the steps and the links, never a
+coordinate. Without `edges` the steps are a chain in the order listed; with
+them, any graph (fan-outs, joins, loops). `labels` names an arrow
+`"from>to"`. A step is a string, or `{"id", "text", "color"}` where `\n`
+breaks the text; a coloured step is solid, a plain one a window like the rest
+of the slide.
+
+| key | |
+| --- | --- |
+| `dir` | `right` (default) or `down` |
+| `box` | `true` puts the diagram in a framed window; `title` goes in the frame |
+
+Steps are placed in layers by the longest path from the start, arrows bend
+halfway across the gap between layers, and an arrow that closes a loop runs
+straight back. About five steps fit across a full-width slide; use `"dir":
+"down"` for more. `--check` names a step that does not exist (with the nearest
+real name) and warns when the flow does not fit.
+
+### shapes — `shapes`
+
+```json
+{"shapes": [
+  {"rect": [0.5, 1, 3, 2], "text": "CUDA0", "shadow": true},
+  {"ellipse": [6, 2, 4, 4], "text": "yoda", "color": "red", "dither": 1},
+  {"arrow": [[3.5, 2], [6, 3.5]], "text": "1 GbE", "width": 2},
+  {"poly": [[10, 8], [11.5, 10], [8.5, 10]], "color": "cyan", "depth": 3},
+  {"label": [0.5, 10.5], "text": "drawn on a 12 x 12 grid", "size": 2}
+]}
+```
+
+Free drawing on a 12 × 12 grid over the block (the grid `at` uses for the
+slide), fractions allowed. Later shapes draw over earlier ones.
+
+| shape | geometry |
+| --- | --- |
+| `rect`, `ellipse` | `[x, y, w, h]` |
+| `poly` | `[[x, y], …]`, at least 3 points, closed |
+| `line`, `arrow` | `[[x, y], …]`, at least 2 points; `arrow` is a line with a head on the last point |
+| `label` | `[x, y]`: where the text starts |
+
+| key | |
+| --- | --- |
+| `text` | inside a closed shape (wrapped to fit), above the middle of a line |
+| `color` | a solid fill, or a line's ink. A plain closed shape is a DOS window: panel inside, frame round it |
+| `border` | outline colour, or `"none"` |
+| `fill` | `false` for an outline only |
+| `dither` | 1–3: that many quarters of the background mixed into the fill |
+| `depth` | 0–6: 3-D extrusion, as bars have |
+| `shadow` | `true`: the DOS drop shadow |
+| `width` | line width 1–4 |
+| `dash` | `true`: a dashed line or outline |
+| `head` | `end`, `start`, `both` or `none` |
+| `size` | text height 1–3 |
+| `text_color` | the text's colour |
+| `align` | labels: `left` (default), `center` or `right` of the point |
+
+`shapes` blocks take `box` and `title` like a flow. `--check` validates every
+shape and warns when one reaches off the grid or its text does not fit.
+
 ### group — `rows` or `cols`
 
 ```json
@@ -109,6 +179,22 @@ strip.
 ```
 
 Blocks side by side, or stacked. Groups nest.
+
+### like — any block
+
+```json
+{"title": "Returns ran at a dozen a month", "type": "line", "data": "cabinets.csv",
+ "series_col": 3, "min": 0, "max": 40, "colors": ["grey"]},
+{"title": "...except June", "like": 3,
+ "annotations": [{"at": "Jun", "text": "38 returns: joystick batch J-114", "color": "red"}]}
+```
+
+`"like": 3` starts a block from slide 3's chart (by the number the footer
+shows; the first chart on that slide), `"like": "slides[2].blocks[1]"` from any
+block by its path. Every key comes along except where the block sits; a key the
+block sets itself replaces the one it would have inherited (a whole
+`annotations` list, not one entry). The target slide's title and notes stay
+behind. This is the build: the same chart twice, written once.
 
 ## Layout
 
@@ -132,7 +218,7 @@ ignoring `layout`. The usual dashboard slide:
 
 | field | |
 | --- | --- |
-| `type` | `bar` `stacked` `hbar` `line` `area` `pie` `pie3d` `donut` `scatter` `hist` `table` |
+| `type` | `bar` `stacked` `hbar` `dumbbell` `line` `area` `pie` `pie3d` `donut` `scatter` `hist` `table` |
 | `title` `subtitle` `xlabel` `ylabel` | text |
 | `values` | numbers on the bars / points (default false) |
 | `legend` `grid` `shadow` | default true |
@@ -141,23 +227,26 @@ ignoring `layout`. The usual dashboard slide:
 | `frame` | `double` (default) `single` `heavy` `none` |
 | `depth` | 0–6, 3-D extrusion; 0 is flat (default 2) |
 | `explode` | pie: 0-based row to pop out, or `true` for the biggest |
-| `min` `max` | pin the value axis |
-| `prec` | decimals in value labels |
+| `min` `max` | pin the value axis. Bars on an axis that does not start at zero are drawn torn, with a break in the axis |
+| `prec` | decimals in value labels and tables (default: as many as the CSV wrote) |
+| `errors` | whiskers from other columns: `{"tg": "tg sd"}` for ±, `{"tg": ["tg min", "tg max"]}` for a range, or `"sd"` / `["min", "max"]` on the first series. The columns named become whiskers, not series. Bar, hbar, line and scatter |
 | `bins` | histogram buckets (default 10) |
 | `xy` | first numeric column is the X axis (scatter, or a line over numeric X) |
-| `transpose` `no_header` `labels_col` `series_col` `label_key` `delim` | how to read the file; see [INPUT.md](INPUT.md) |
+| `transpose` `no_header` `labels_col` `series_col` `label_key` `delim` | how to read the file; see [INPUT.md](INPUT.md). `series_col` counts columns from 1 with the labels as column 1, and keeps the columns `errors` names; `--describe` prints the numbers |
 
 Choosing a type:
 
 | the point is | use |
 | --- | --- |
 | compare categories | `bar`; `hbar` when names are long or it is a ranking |
+| before and after, per category | `dumbbell`: a dot per series, an arrow to the last |
 | parts of a total, per category | `stacked` |
 | change over time | `line`; `area` for one or two series where volume matters |
 | share of one total, ≤ 6 parts | `pie3d` / `donut`; more parts than that, use `hbar` |
 | relation between two measures | `scatter` with `xy` |
 | spread of one measure | `hist` |
-| the exact numbers | `table` |
+| the exact numbers | `table`: columns of words too, numbers with the decimals the file wrote |
+| how something works | a [flow](#flow--flow) |
 
 A pie of one series has a slice per row; of several series, a slice per series
 (each summed).
@@ -176,7 +265,7 @@ in any of the JSON shapes:
 "data": [["", "north", "south"], ["Q1", 120, 88], ["Q2", 145, 91]]
 ```
 
-`null` is a gap. Prefer a file when a human will edit the numbers: the sheet
+`null`, or an empty CSV field, is a gap. Prefer a file when a human will edit the numbers: the sheet
 saves a CSV back to its file, and inline data back into the deck.
 
 ## Annotations
@@ -195,6 +284,9 @@ saves a CSV back to its file, and inline data back into the deck.
 | `at` (+ `series`) | a callout with a leader line to one data point; on a pie, to the slice |
 | `y` | a dashed line across the plot at that value, labelled |
 | `x` | a dashed line up the plot at that category, labelled |
+
+On `hbar` and `dumbbell` the value axis runs across, so a `y` line stands up at
+its value and an `x` line lies across its category's row.
 | `note` | free text; `[x, y]` from 0 to 1 across the plot, `[0,0]` top left |
 
 `at` and `x` take the category label exactly as it is in the data (case does
@@ -241,3 +333,4 @@ block minus 10 columns and 6 rows.
 - Slide titles: 55 characters at full size.
 - `ylabel` runs down the axis a letter a row: about 18 characters on a full-height chart.
 - A `# heading` in a text block is double size when it fits on one line that way, normal size otherwise.
+- A flow fits about five steps across a full-width slide; an arrow's label wants to be no wider than the gap it names (about 12 characters).

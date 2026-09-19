@@ -39,10 +39,11 @@ THE LOOP
                Each PNG is pixel-for-pixel the human's screen, a few KB.
   5. LAUNCHER  charts deck.json --launcher NAME
                Writes ~/.local/bin/NAME (or the path, if NAME has a slash) and
-               prints it.  Tell the human to run NAME.  That is all they do.
-               The launcher finds charts, opens a terminal if started without
-               one (menu, key binding), and charts picks framebuffer / kitty /
-               sixel / cells from where it finds itself.
+               prints it: a small POSIX sh script, a command with no .sh on
+               it.  Give the human the command and the path it printed; that
+               is all they need.  The launcher finds charts, opens a terminal
+               if started without one (menu, key binding), and charts picks
+               framebuffer / kitty / sixel / cells from where it finds itself.
   If the human already has the deck open, skip 5: the presenter watches the
   deck and its data files and redraws when you rewrite them.
 
@@ -84,9 +85,14 @@ BLOCK   the key it has decides what it is
           One string per bullet or paragraph; long lines wrap with a hanging indent.
   stat    {"stat": "1,153", "label": "signups, W35", "delta": "+8.5% w/w", "color": COLOUR}
           one big number.  delta starting "+" is green with an up arrow, "-" red and down.
+  flow    {"flow": ["read", "think", "write"], ...}      boxes and arrows, laid out for you
+  shapes  {"shapes": [SHAPE, ...]}                       free drawing       see DIAGRAMS
   group   {"cols": [BLOCK, ...]}  or  {"rows": [BLOCK, ...]}     nests to any depth
   any     "weight": 2            share of its row/column (default 1)
           "at": [x, y, w, h]     explicit place on a 12 x 12 grid over the slide body
+          "like": 3              start from slide 3's chart (or "slides[2].blocks[0]"):
+                                 every key of it, then this block's own keys win.
+                                 Two slides, one chart written once: the BUILD.
 
 LAYOUT   auto = up to three blocks side by side, more in a grid.  cols / rows /
   grid force it.  "at" ignores layout.  The dashboard slide:
@@ -97,7 +103,7 @@ LAYOUT   auto = up to three blocks side by side, more in a grid.  cols / rows /
 ==============================================================================
 CHART FIELDS   (all optional; all also valid in a data file's own chart block)
 ==============================================================================
-  type       bar stacked hbar line area pie pie3d donut scatter hist table
+  type       bar stacked hbar dumbbell line area pie pie3d donut scatter hist table
   title subtitle xlabel ylabel
   values     numbers on the bars / points          (default false)
   legend grid shadow                               (default true)
@@ -110,21 +116,29 @@ CHART FIELDS   (all optional; all also valid in a data file's own chart block)
                {"Dec": "white"}                          one bar of a single-series bar/hbar
                {"ok": "green", "down": "red"}            pie slices by label
                ["grey", "yellow"]                        in series order
-  min max    pin the value axis (max gets its own tick)
-  prec       decimals in value labels              bins   histogram buckets (default 10)
+  min max    pin the value axis (max gets its own tick).  Bars on an axis that
+             does not start at zero are drawn torn, with a break in the axis.
+  prec       decimals in value labels and tables (default: as the CSV wrote them)
+  bins       histogram buckets (default 10)
   xy         first numeric column is the X axis (scatter; line over numeric X)
+  errors     whiskers from other columns: {"tg": "tg sd"} (+-), {"tg": ["min", "max"]},
+             or "sd" / ["min", "max"] for the first series.  bar hbar line scatter.
   transpose no_header labels_col series_col label_key delim     how to read the file
-             series_col N keeps only column N as the series: one file, many charts
+             series_col N keeps only column N as the series: one file, many charts.
+             Columns count from 1 WITH the labels: in "name,a,b" a is 2, b is 3.
+             Columns that errors names are kept too.  --describe shows the numbers.
   annotations  [ ... ]  see ANNOTATIONS
 
   Which type:
     compare categories ................ bar      (hbar: long names, rankings)
+    before -> after, per category ..... dumbbell (a series per state: "1 GbE", "2.5 GbE")
     parts of a total per category ..... stacked
     change over time .................. line     (area: 1-2 series where volume matters)
     share of one total, <= 6 parts .... pie3d / donut    (more parts: hbar)
     two measures against each other ... scatter + xy
     spread of one measure ............. hist
-    the exact numbers ................. table
+    the exact numbers ................. table    (text columns too, numbers as written)
+    how something works ............... flow     (see DIAGRAMS)
   A pie of one series has a slice per row; of several series, a slice per series.
 
 COLOUR  a name or 0..15:  black blue green cyan red magenta brown yellow white
@@ -138,7 +152,9 @@ DATA   a CSV/TSV/JSON file, or inline in any of these shapes:
   {"payroll": 620, "cloud": 310}             {"x": [1,2,3], "y": [4,5,6]}
   [["", "north", "south"], ["Q1", 120, 88], ...]        null = a gap
   CSV: delimiter , ; TAB | is sniffed; '#' lines are comments; plain numbers
-  only (no units, no thousands separators unless the field is quoted).
+  only (no units, no thousands separators unless the field is quoted); an
+  empty field is a gap.  Columns of words are shown by a table, ignored by
+  every other chart.
   A file can say how it is drawn:   #chart: type=line, title="Load", values
                                     {"chart": {"type": "pie3d"}, "rows": [...]}
   Precedence: command line > deck > data file > defaults.
@@ -152,7 +168,32 @@ ANNOTATIONS   say what the chart means, on the chart
   {"note": [0.02, 0.02], "text": "n = 412"}                     free text, [x,y] 0..1 from top left
   "at"/"x" = the category label as in the data (or a 0-based row); "series"
   optional.  "color": COLOUR recolours one.  Text wraps at 24 characters.
-  Callouts place themselves clear of value labels and each other.
+  Callouts place themselves clear of value labels and each other.  On hbar
+  and dumbbell the value axis runs across, so "y" stands up and "x" lies down.
+
+==============================================================================
+DIAGRAMS   -- when the point is how something works, not how much
+==============================================================================
+FLOW   boxes and arrows, laid out for you.  Name the steps; never a coordinate.
+  {"flow": ["tokens", "CUDA0", {"id": "yoda", "text": "yoda\n2 GPUs", "color": "red"}, "CUDA1"],
+   "labels": {"yoda>CUDA1": "1 MB/token"}}             a chain, in the listed order
+  "edges": [["a", "b"], ["a", "c", "label"], {"from": "c", "to": "d", "dash": true, "color": "red"}]
+                                                       any graph instead: fans, joins, loops
+  "dir": "down"          stack the steps (default: left to right)
+  "box": true            in a window of its own, "title" in the frame
+  A step is a string, or {"id", "text", "color"}; "\n" breaks its text.  A
+  coloured step is solid; a plain one is a window like the rest.
+
+SHAPES   free drawing on a 12 x 12 grid over the block (fractions fine):
+  {"rect": [x, y, w, h]}   {"ellipse": [x, y, w, h]}   {"poly": [[x, y], ...]}
+  {"line": [[x, y], ...]}  {"arrow": [[x, y], ...]}    {"label": [x, y], "text": "..."}
+  "text"        inside a closed shape, above a line's middle
+  "color"       a solid fill (a plain shape is a DOS window: panel inside, frame round)
+  "border" COLOUR  "fill": false  "dither": 1-3  "depth": 0-6  "shadow": true
+  "width": 1-4  "dash": true  "head": end|start|both|none  "size": 1-3 (text)
+  "text_color" COLOUR   "align": left|center|right (labels)
+  Later shapes draw over earlier ones.  The grid is the block's, so a shapes
+  block in a column is drawn in that column's proportions.
 
 ==============================================================================
 THEMES, PALETTES, DISPLAY   -- everything about presentation is in the file
@@ -209,6 +250,8 @@ WHAT FITS   (120 x 33 cells; text that does not fit is cut, never shrunk)
   stat ............... value <= 6 chars draws large; label <= 30 in a third-width tile
   values: true ....... good to ~12 categories x 2 series; numbers that do not fit are dropped
   line charts ........ ~40 points.   hist: up to 60 bins.
+  flow ............... ~5 steps across a full-width slide, more with "dir": "down";
+                       an arrow label as wide as the gap it names, ~12 characters.
 
 ==============================================================================
 CRAFT   the look is fixed; whether a slide says something is up to you
@@ -227,8 +270,14 @@ CRAFT   the look is fixed; whether a slide says something is up to you
     on June.  at = the point, y = the target or threshold, x = the moment
     something changed, note = sample size and caveats.  One to three per chart.
   BUILDS.  Two slides, the same chart: first quiet (grey, no notes), then
-    again with the annotations and the conclusion as its title.  Pin min/max
-    on both so nothing jumps between them.
+    again with the annotations and the conclusion as its title.  Write it
+    once and say "like": 3 on the second.  Pin min/max so nothing jumps.
+  SHOW THE SPREAD.  When the data has one (llama-bench's +-, min/max over
+    runs), put it on the chart with errors: a gap that is inside the noise
+    is not a finding.
+  EXPLAIN THE MECHANISM.  When a finding has a cause, a flow of 3-5 boxes
+    with the arrow that matters labelled ("1 MB/token over 1 GbE") beats a
+    paragraph.  Colour the box where the cost is.
   SMALL MULTIPLES.  layout grid + series_col to split one file into a panel
     per series, the SAME min/max on every panel, one panel in another colour.
   PIN THE AXIS when slides or panels are compared (min/max), and when a chart
@@ -258,11 +307,13 @@ WHEN SOMETHING IS OFF
 ==============================================================================
   "cannot open" ............ data paths are relative to the DECK, not your cwd
   "no numeric columns" ..... units or thousands separators in the CSV; write plain numbers
+  "series_col N is ..." .... it counts the labels as column 1; the message lists the series
   wrong labels / series .... charts file.csv --describe; then labels_col / series_col / transpose
   numeric categories ....... a first column of years, sizes or counts is read as a SERIES.
                              Say "labels_col": 1 to make it the categories, or "xy": true for a numeric X axis.
   labels thinned or cut .... too many or too long: hbar, shorter names, fewer categories
   annotation not drawn ..... "at" must match a label in the data exactly (--check says which)
+  error bars not drawn ..... errors names a column the data does not have (--check says which)
   a chart is an error box .. the block's error is printed in place; --check has the path
 
 OPTIONS  (agents only; the launcher passes none)

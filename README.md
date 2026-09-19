@@ -44,9 +44,9 @@ file.
 
 ## Decks
 
-A deck is one JSON file. Slides hold charts, text and big numbers, laid out
-automatically or on a 12×12 grid. Data is a CSV/TSV/JSON file beside the deck,
-or inline.
+A deck is one JSON file. Slides hold charts, text, big numbers, flow diagrams
+and free shapes, laid out automatically or on a 12×12 grid. Data is a
+CSV/TSV/JSON file beside the deck, or inline.
 
 ```json
 {
@@ -98,8 +98,14 @@ read — is never overwritten; the sheet says so.
 
 ## Chart types
 
-`bar` `stacked` `hbar` `line` `area` `pie` `pie3d` `donut` `scatter` `hist`
-`table`. Bars, pies and donuts are extruded by default; `depth: 0` is flat.
+`bar` `stacked` `hbar` `dumbbell` `line` `area` `pie` `pie3d` `donut`
+`scatter` `hist` `table`. Bars, pies and donuts are extruded by default;
+`depth: 0` is flat. Bars on an axis that does not start at zero are drawn torn.
+`errors` puts whiskers on bars, lines and points from min/max or ± columns.
+
+Beside the charts: `flow` blocks (name the steps and the arrows, the layout is
+done for you) and `shapes` blocks (rectangles, ellipses, polygons, arrows and
+labels on a 12×12 grid, solid, dithered or extruded).
 
 ![horizontal bars and a donut](docs/img/regions.png)
 
@@ -121,7 +127,8 @@ dither instead.
 src/gfx.*       16-colour surfaces, dither inks, the bitmap font, indexed images
 src/png.cpp     PNG writer with its own deflate
 src/scene.*     one screenful: text cells + pixel surfaces -> cells or an image
-src/charts.cpp  every chart renderer, annotations
+src/charts.cpp  every chart renderer, annotations, error bars
+src/diagram.*   shapes and flow diagrams
 src/deck.*      deck model, checking, saving        src/slide.cpp   slide layout and drawing
 src/display.*   framebuffer, kitty, sixel, cells    src/tui.cpp     the presenter
 src/data.* json.* spec.*   loaders, write-back, the chart spec
