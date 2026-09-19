@@ -289,11 +289,12 @@ private:
     v.message_bad = message_bad_;
     if (!digits_.empty()) v.message = "go to slide " + digits_ + "  (enter)";
 
-    if (mode_ == SHEET && focused()) {
+    Block *f = focused();
+    if (mode_ == SHEET && f && sheet_ok(*f)) {
       draw_sheet(sc, v);
     } else {
-      v.focus = focused();
-      if (mode_ == ANNOTATE && v.focus) {
+      v.focus = f;
+      if (mode_ == ANNOTATE && f && annotate_ok(*f)) {
         v.cur_series = cur_s_;
         v.cur_index = cur_i_;
         if (message_.empty()) v.message = cursor_text(*v.focus);
@@ -767,6 +768,30 @@ private:
   int sheet_cols(const Dataset &ds) const { return static_cast<int>(ds.series.size()) + 1; }
   int sheet_rows(const Dataset &ds) const { return static_cast<int>(ds.nrows()); }
 
+  // The data under the sheet or the annotate cursor may have been read again
+  // from disk since the mode was entered (the presenter follows the file), so
+  // before every key and every frame: still editable, and the cursor inside it.
+  bool sheet_ok(Block &b) {
+    if (!b.error.empty() || b.ds.series.empty()) {
+      mode_ = VIEW;
+      editing_ = false;
+      say(b.error.empty() ? "the data has no series to edit" : "the data changed on disk: " + b.error, true);
+      return false;
+    }
+    row_ = std::max(-1, std::min(row_, sheet_rows(b.ds) - 1));
+    col_ = std::max(0, std::min(col_, sheet_cols(b.ds) - 1));
+    return true;
+  }
+  bool annotate_ok(Block &b) {
+    if (b.kind != Block::CHART || !b.error.empty() || b.ds.empty()) {
+      mode_ = VIEW;
+      return false;
+    }
+    cur_i_ = std::max(0, std::min(cur_i_, static_cast<int>(b.ds.nrows()) - 1));
+    cur_s_ = std::max(0, std::min(cur_s_, static_cast<int>(b.ds.series.size()) - 1));
+    return true;
+  }
+
   std::string cell_text(const Dataset &ds, int r, int c, bool raw) const {
     if (r < 0) {
       if (c == 0) return ds.label_name.empty() ? "label" : ds.label_name;
@@ -820,7 +845,7 @@ private:
 
   void key_sheet(const std::string &k) {
     Block *bp = focused();
-    if (!bp) { mode_ = VIEW; return; }
+    if (!bp || !sheet_ok(*bp)) { mode_ = VIEW; return; }
     Block &b = *bp;
     Dataset &ds = b.ds;
     const int R = sheet_rows(ds), C = sheet_cols(ds);
@@ -1069,7 +1094,7 @@ private:
 
   void key_annotate(const std::string &k) {
     Block *bp = focused();
-    if (!bp || bp->kind != Block::CHART) { mode_ = VIEW; return; }
+    if (!bp || !annotate_ok(*bp)) { mode_ = VIEW; return; }
     Block &b = *bp;
     const Dataset &ds = b.ds;
     const int R = static_cast<int>(ds.nrows()), NS = static_cast<int>(ds.series.size());

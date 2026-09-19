@@ -284,6 +284,49 @@ s.wait_exit()
 s.kill()
 
 # ---------------------------------------------------------------------------
+print("== the data file changes under the sheet and the annotate cursor")
+with open(csv_path, "w") as f:
+    f.write(body)
+s = Session([deck, "--gfx", "cells", "--slide", "2"])
+s.keys("e", "RIGHT", "RIGHT", "DOWN", "DOWN")
+check("the sheet is on the last column", "costs · Mar" in s.screen(), s.screen()[-200:])
+time.sleep(0.3)
+with open(csv_path, "w") as f:
+    f.write("month,revenue\nJan,1\n")
+s.read(1.0)
+check("the presenter survives the column going away", s.alive())
+s.keys("ENTER", "9", "ENTER", "DOWN", "^D", "^X")
+check("and the keys that follow", s.alive())
+check("the cursor moved into what is left", "revenue" in s.screen() and "costs ·" not in s.screen(), s.screen()[-200:])
+s.keys("ESC", "q")
+check("the edit made before the reload still counts as unsaved", "unsaved" in s.screen().lower(), s.screen()[-300:])
+s.keys("q")
+st = s.wait_exit()
+check("and quits cleanly", st is not None and os.WIFEXITED(st) and os.WEXITSTATUS(st) == 0, "status %r" % (st,))
+s.kill()
+
+with open(csv_path, "w") as f:
+    f.write(body)
+s = Session([deck, "--gfx", "cells", "--slide", "2"])
+s.keys("a", "RIGHT", "RIGHT")
+check("annotate mode is on", "enter note" in s.screen())
+time.sleep(0.3)
+with open(csv_path, "w") as f:
+    f.write("garbage\n")
+s.read(1.0)
+s.keys("RIGHT", "LEFT", "UP", "ENTER")
+check("annotate mode survives the file breaking", s.alive())
+s.keys("ESC", "e")
+check("a chart whose file broke cannot be edited", "no data under it" in s.screen(), s.screen()[-300:])
+s.keys("q")
+st = s.wait_exit()
+check("and quits cleanly, nothing having been edited", st is not None and os.WIFEXITED(st) and os.WEXITSTATUS(st) == 0,
+      "status %r" % (st,))
+s.kill()
+with open(csv_path, "w") as f:
+    f.write(body)
+
+# ---------------------------------------------------------------------------
 print("== a bare data file")
 q = os.path.join(d, "quarterly.csv")
 s = Session(["-i", q, "--gfx", "cells"])
