@@ -21,6 +21,7 @@ const char *app_display_name(const app_display *display);
 lc_mode app_display_mode(const app_display *display);
 void app_display_grid(app_display *display,int *cols,int *rows);
 lc_status app_display_show(app_display *display,lc_scene *scene);
+void app_vga_planes(const unsigned char *line,int width,unsigned char planes[4][80]);
 int app_display_needs_redraw(app_display *display);
 void app_display_invalidate(app_display *display);
 void app_display_close(app_display *display);

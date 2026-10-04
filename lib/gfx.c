@@ -151,11 +151,13 @@ static const font_glyph *find_glyph(lc_codepoint cp) {
 }
 int lc_glyph_known(lc_codepoint cp) { return find_glyph(cp)!=NULL; }
 const unsigned char *lc_glyph_rows(lc_codepoint cp) { const font_glyph *g=find_glyph(cp); return g ? g->rows : tofu; }
+/* x + w clipped to limit, without overflowing int (w > 0). Integer, because
+   this runs per glyph pixel and a double is a software routine without an FPU. */
+static int clip_end(int x,int w,int limit) { return x>=0 && w>=limit-x ? limit : LC_MIN(x+w,limit); }
 void lc_image_rect(lc_image *im,int x,int y,int w,int h,int color) {
-    int x0,y0,x1,y1,j; double right,bottom;
+    int x0,y0,x1,y1,j;
     if (!im || !im->pixels || w<=0 || h<=0) return;
-    right=(double)x+w; bottom=(double)y+h;
-    x0=LC_MAX(x,0); y0=LC_MAX(y,0); x1=lc_clamp_int(right,INT_MIN,im->width); y1=lc_clamp_int(bottom,INT_MIN,im->height);
+    x0=LC_MAX(x,0); y0=LC_MAX(y,0); x1=clip_end(x,w,im->width); y1=clip_end(y,h,im->height);
     if (x0>=x1 || y0>=y1) return;
     for (j=y0;j<y1;j++) memset(im->pixels+(size_t)j*im->stride+x0,color&15,(size_t)(x1-x0));
 }
@@ -166,9 +168,15 @@ void lc_image_glyph(lc_image *im,int x,int y,lc_codepoint cp,int fg,int bg,int s
     if (bg>=0) lc_image_rect(im,x,y,8*scale,16*scale,bg);
     if (cp==' ') return;
     rows=lc_glyph_rows(cp);
+    if (scale==1 && im && im->pixels && x>=0 && y>=0 && x<=im->width-8 && y<=im->height-16) {
+        unsigned char *row; int ink=fg&15;
+        for (r=0;r<16;r++) { row=im->pixels+(size_t)(y+r)*im->stride+x; for (c=0;c<8;c++) if (rows[r]&(128>>c)) row[c]=(unsigned char)ink; }
+        return;
+    }
+    /* a pixel whose position overflows int is skipped */
     for (r=0;r<16;r++) for (c=0;c<8;c++) if (rows[r]&(128>>c)) {
-        double gx=(double)x+c*scale,gy=(double)y+r*scale;
-        if (gx>=INT_MIN && gx<=INT_MAX && gy>=INT_MIN && gy<=INT_MAX) lc_image_rect(im,(int)gx,(int)gy,scale,scale,fg);
+        if ((x>0 && x>INT_MAX-c*scale) || (y>0 && y>INT_MAX-r*scale)) continue;
+        lc_image_rect(im,x+c*scale,y+r*scale,scale,scale,fg);
     }
 }
 lc_status lc_image_scale(lc_context *ctx,const lc_image *im,int k,lc_image *out) {

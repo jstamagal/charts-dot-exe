@@ -57,5 +57,13 @@ int main(void)
     assert(!setenv("CHARTS_FB_GEOM","640x480x2147483647",1));
     display=app_display_open("fb",1,1,&error);assert(display);assert(!strcmp(app_display_name(display),"cells"));app_display_close(display);
     lc_scene_destroy(scene);lc_context_destroy(ctx);unlink(path);
-    puts("platform: panned framebuffer padding and invalid bpp passed");return 0;
+    /* VGA planes against the obvious bit-at-a-time packing */
+    for(k=0;k<200;k++) {
+        unsigned char line[640],planes[4][80],want[4][80];int plane;
+        for(x=0;x<640;x++)line[x]=(unsigned char)(k==0 ? x&15 : k==1 ? (x&1)*15 : rand()&15);
+        memset(want,0,sizeof want);
+        for(plane=0;plane<4;plane++)for(x=0;x<640;x++)if(line[x]&(1<<plane))want[plane][x>>3]|=(unsigned char)(0x80>>(x&7));
+        app_vga_planes(line,640,planes);assert(!memcmp(planes,want,sizeof want));
+    }
+    puts("platform: panned framebuffer padding, invalid bpp and VGA planes passed");return 0;
 }

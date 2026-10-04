@@ -514,24 +514,37 @@ static lc_status fb_show(app_display *d,const lc_image *im,int border)
     (void)d;(void)im;(void)border;return LC_EINVAL;
 #endif
 }
+/* The four VGA bit planes of a row of 4-bit colours, eight pixels a byte,
+   leftmost in the high bit: one pass, with each pixel's four bits spread to
+   one per byte of a long. Testing every pixel against every plane took
+   eleven seconds a frame on a 386SX-25. */
+void app_vga_planes(const unsigned char *line,int width,unsigned char planes[4][80])
+{
+    static const unsigned long spread[16]={
+        0x00000000UL,0x00000001UL,0x00000100UL,0x00000101UL,0x00010000UL,0x00010001UL,0x00010100UL,0x00010101UL,
+        0x01000000UL,0x01000001UL,0x01000100UL,0x01000101UL,0x01010000UL,0x01010001UL,0x01010100UL,0x01010101UL};
+    unsigned long acc;
+    int b,i;
+    for (b=0;b<width/8 && b<80;b++) {
+        acc=0;
+        for (i=0;i<8;i++) acc=(acc<<1)|spread[line[b*8+i]&15];
+        planes[0][b]=(unsigned char)(acc&255);planes[1][b]=(unsigned char)((acc>>8)&255);
+        planes[2][b]=(unsigned char)((acc>>16)&255);planes[3][b]=(unsigned char)((acc>>24)&255);
+    }
+}
 static lc_status vga_show(app_display *d,const lc_image *im,int border)
 {
 #ifdef APP_DOS
-    unsigned char row[80];
+    unsigned char line[640],planes[4][80];
     unsigned char *video;
-    int plane,x,y,sx,sy,ox,oy,c;
+    int plane,y,sy,ox,oy;
     video=(unsigned char *)0xa0000UL;ox=MAXIMUM(0,(640-im->width)/2);oy=MAXIMUM(0,(480-im->height)/2);
     outpw(0x3ce,0x0005);outpw(0x3ce,0xff08);outpw(0x3ce,0x0001);outpw(0x3ce,0x0003);
-    for (plane=0;plane<4;plane++) {
-        outpw(0x3c4,(1<<(plane+8))|2);
-        for (y=0;y<480;y++) {
-            memset(row,0,sizeof row);sy=y-oy;
-            for (x=0;x<640;x++) {
-                sx=x-ox;c=sy>=0 && sy<im->height && sx>=0 && sx<im->width ? im->pixels[(size_t)sy*im->stride+sx] : border;
-                if (c&(1<<plane)) row[x>>3]|=(unsigned char)(0x80>>(x&7));
-            }
-            memcpy(video+(size_t)y*80,row,80);
-        }
+    for (y=0;y<480;y++) {
+        memset(line,border,sizeof line);sy=y-oy;
+        if (sy>=0 && sy<im->height) memcpy(line+ox,im->pixels+(size_t)sy*im->stride,(size_t)MINIMUM(im->width,640-ox));
+        app_vga_planes(line,640,planes);
+        for (plane=0;plane<4;plane++) { outpw(0x3c4,(1<<(plane+8))|2);memcpy(video+(size_t)y*80,planes[plane],80); }
     }
     outpw(0x3c4,0x0f02);(void)d;return LC_OK;
 #else
