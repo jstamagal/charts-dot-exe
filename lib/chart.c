@@ -886,9 +886,13 @@ static plot draw_pie(render *rr,lc_rect r,lc_rect clip,int solid,double hole)
     for(i=0;i<=n;++i){ang=(i<n?sl[i].a0:1)*2*PI-PI/2;ray_cos[i]=cos(ang);ray_sin[i]=sin(ang);}
     for(y=0;y<h;++y){pie_row(&g,ray_cos,ray_sin,cross,near,w,y,own+(size_t)y*w);for(x=0;x<w;++x)wall[(size_t)y*w+x]=-1;}
     idp=(int)lc_round(dp);
-    if(idp>0)for(y=0;y<h;++y)for(x=0;x<w;++x) {
-        if(owner(own,w,h,x,y)>=0)continue;
-        for(dz=1;dz<=idp;++dz){s=owner(own,w,h,x,y-dz);if(s>=0){wall[(size_t)y*w+x]=s;break;}}
+    /* Under a slice, down to the depth, is its wall: the nearest slice pixel
+       above in the same column. One pass down each column finds it; looking
+       up from every empty pixel was most of a 3-D pie's time on a 386SX. */
+    if(idp>0)for(x=0;x<w;++x)for(dz=-1,ws=-1,y=0;y<h;++y) {
+        s=own[(size_t)y*w+x];
+        if(s>=0){dz=y;ws=s;}
+        else if(dz>=0 && y-dz<=idp)wall[(size_t)y*w+x]=ws;
     }
     edge=INK(panel(sc));
     for(y=0;y<h;++y)for(x=0;x<w;++x) {

@@ -43,7 +43,9 @@ lc_surface *lc_scene_surface(lc_scene *sc,lc_rect rect) {
     memset(l,0,sizeof *l); l->rect=rect; s=&l->surface; s->ctx=sc->ctx; s->scene=sc;
     s->w=w*sx; s->h=h*sy; s->sx=sx; s->sy=sy; s->pixels=(lc_ink *)lc_alloc(sc->ctx,bytes);
     if (!s->pixels) { lc_free(sc->ctx,l); lc_scene_fail(sc,LC_ENOMEM); return NULL; }
-    for (i=0;i<count;i++) s->pixels[i]=lc_ink_make(0,0,LC_EMPTY);
+    /* every pixel starts empty: set one and double it, not a call per pixel */
+    s->pixels[0]=lc_ink_make(0,0,LC_EMPTY);
+    for (i=1;i<count;i+=LC_MIN(i,count-i)) memcpy(s->pixels+i,s->pixels,LC_MIN(i,count-i)*sizeof *s->pixels);
     if (sc->last_layer) sc->last_layer->next=l; else sc->layers=l;
     sc->last_layer=l; return s;
 }
