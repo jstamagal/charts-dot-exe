@@ -156,7 +156,7 @@ const unsigned char *lc_glyph_rows(lc_codepoint cp) { const font_glyph *g=find_g
 static int clip_end(int x,int w,int limit) { return x>=0 && w>=limit-x ? limit : LC_MIN(x+w,limit); }
 void lc_image_rect(lc_image *im,int x,int y,int w,int h,int color) {
     int x0,y0,x1,y1,j;
-    if (!im || !im->pixels || w<=0 || h<=0) return;
+    if (!im || !im->pixels || w<=0 || h<=0 || im->width<=0 || im->height<=0) return;
     x0=LC_MAX(x,0); y0=LC_MAX(y,0); x1=clip_end(x,w,im->width); y1=clip_end(y,h,im->height);
     if (x0>=x1 || y0>=y1) return;
     for (j=y0;j<y1;j++) memset(im->pixels+(size_t)j*im->stride+x0,color&15,(size_t)(x1-x0));
@@ -168,7 +168,7 @@ void lc_image_glyph(lc_image *im,int x,int y,lc_codepoint cp,int fg,int bg,int s
     if (bg>=0) lc_image_rect(im,x,y,8*scale,16*scale,bg);
     if (cp==' ') return;
     rows=lc_glyph_rows(cp);
-    if (scale==1 && im && im->pixels && x>=0 && y>=0 && x<=im->width-8 && y<=im->height-16) {
+    if (scale==1 && im && im->pixels && im->width>=8 && im->height>=16 && x>=0 && y>=0 && x<=im->width-8 && y<=im->height-16) {
         unsigned char *row; int ink=fg&15;
         for (r=0;r<16;r++) { row=im->pixels+(size_t)(y+r)*im->stride+x; for (c=0;c<8;c++) if (rows[r]&(128>>c)) row[c]=(unsigned char)ink; }
         return;
