@@ -18,3 +18,5 @@ out/
 .vscode/
 !docs/img/*.png
 *.charts-tmp
+__pycache__/
+*.pyc

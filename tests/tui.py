@@ -124,6 +124,9 @@ class Session:
         return None
 
     def kill(self):
+        if re.search(rb"AddressSanitizer|LeakSanitizer|runtime error:", self.raw):
+            bad("sanitizer diagnostics in presenter output")
+            print(self.raw.decode("utf-8", "replace")[-8000:])
         try:
             os.kill(self.pid, signal.SIGKILL)
             os.waitpid(self.pid, 0)
@@ -307,6 +310,27 @@ check("the agent's annotations are still there", any(n.get("text") == "spring la
 s.keys("q")
 s.wait_exit()
 s.kill()
+
+# ---------------------------------------------------------------------------
+print("== saved numbers and small objects read like the original")
+fmt = os.path.join(d, "fmt.json")
+with open(fmt, "w") as f:
+    f.write('{"slides": [{"title": "tab\there", "chart": "line", '
+            '"data": {"labels": ["a", "b", "c"], '
+            '"series": [{"name": "s", "values": [0.1, 0.3, 2]}]}, '
+            '"annotations": [{"at": "b", "text": "note"}]}]}\n')
+s = Session([fmt, "--gfx", "cells"])
+check("a raw tab inside a JSON string still loads", "tab" in s.screen(), s.screen()[-300:])
+s.keys("E")
+s.keys(*"!", "ENTER")
+s.keys("s")
+s.keys("q")
+s.wait_exit()
+s.kill()
+with open(fmt) as f:
+    text = f.read()
+check("decimals are saved to 12 digits, not 17", "[0.1, 0.3, 2]" in text, text)
+check("a small annotation stays on one line", '{"at": "b", "text": "note"}' in text, text)
 
 # ---------------------------------------------------------------------------
 print("== text, titles, new slides")
@@ -553,6 +577,69 @@ if m:
         check("it keeps off the last row, which would scroll", int(ra.group(2)) <= 29 * 20, ra.group(2).decode())
 s.keys("q")
 s.wait_exit()
+s.kill()
+
+print("== same-second file rewrites")
+stamp_deck = os.path.join(d, "stamp.json")
+stamp_csv = os.path.join(d, "stamp.csv")
+stamp_second = int(time.time())
+stamp_old = stamp_second * 1000000000 + 111111111
+stamp_new = stamp_second * 1000000000 + 222222222
+stamp_content = {"slides": [{"title": "First", "data": "stamp.csv"}]}
+with open(stamp_deck, "w") as f:
+    json.dump(stamp_content, f)
+with open(stamp_csv, "w") as f:
+    f.write("name,value\nOld,1\n")
+os.utime(stamp_deck, ns=(stamp_old, stamp_old))
+os.utime(stamp_csv, ns=(stamp_old, stamp_old))
+s = Session([stamp_deck, "--gfx", "cells"])
+stamp_content["slides"][0]["title"] = "Fresh"
+with open(stamp_deck, "w") as f:
+    json.dump(stamp_content, f)
+os.utime(stamp_deck, ns=(stamp_new, stamp_new))
+s.read(1.0)
+check("same-size deck rewrites within one second reload", "Fresh" in s.screen())
+with open(stamp_csv, "w") as f:
+    f.write("name,value\nNew,9\n")
+os.utime(stamp_csv, ns=(stamp_new, stamp_new))
+s.read(1.0)
+check("same-size data rewrites within one second reload", "New" in s.screen())
+s.keys("q")
+s.wait_exit()
+s.kill()
+
+print("== series editing and undo")
+series_deck = os.path.join(d, "series.json")
+with open(series_deck, "w") as f:
+    json.dump({"slides": [{"data": {"labels": ["A", "B"], "series": [{"name": "first", "values": [1, 2]}]}}]}, f)
+s = Session([series_deck, "--gfx", "cells"])
+s.keys("e", "^A", "^U", *"second", "ENTER", "9", "ENTER", "^X", "u", "s")
+with open(series_deck) as f:
+    j = json.load(f)
+series = j["slides"][0]["data"]["series"]
+check("undo restores a deleted series and its edited cells", len(series) == 2 and series[1]["name"] == "second" and series[1]["values"][0] == 9, json.dumps(series))
+s.keys("HOME", "^X")
+check("the label column cannot be deleted", "the label column sta" in s.screen())
+s.keys("ESC", "q")
+check("the sheet exits cleanly after saving", s.wait_exit() == 0)
+s.kill()
+
+print("== multiline and Unicode editing")
+edit_deck = os.path.join(d, "editor.json")
+with open(edit_deck, "w") as f:
+    json.dump({"slides": [{"title": "Editor", "blocks": [{"text": ["start"]}]}]}, f)
+s = Session([edit_deck, "--gfx", "cells"])
+s.keys("e", "^U", "ENTER", "^U", "BS", *"café", "LEFT", "BS", "f", "END",
+       "ENTER", *"second", "HOME", "BS", "ENTER", "END", "ENTER", "ESC", "s")
+with open(edit_deck) as f:
+    j = json.load(f)
+check("splitting and joining retain Unicode text", j["slides"][0]["blocks"][0]["text"] == ["café", "second"], json.dumps(j))
+s.keys("e", "^U", *"discarded", "^C", "s")
+with open(edit_deck) as f:
+    j = json.load(f)
+check("cancelling the editor preserves its saved content", j["slides"][0]["blocks"][0]["text"] == ["café", "second"])
+s.keys("q")
+check("the text editor exits cleanly", s.wait_exit() == 0)
 s.kill()
 
 cleanup(d)

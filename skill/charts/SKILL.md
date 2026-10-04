@@ -250,7 +250,7 @@ PALETTES  series colours, in order
   Deck-level sets the default; a chart's own "palette" or "colors" overrides.
 
 DISPLAY   "display": {...} in the deck; the launcher needs no flags
-  gfx     auto (default) | fb | kitty | sixel | cells | ascii
+  gfx     auto (default) | fb | kitty | sixel | cells | ascii | vga (DOS)
   scale   pixel multiplier on pixel displays.  auto = screen width / 960, so a
           1080p console is scale 2 = a 120 x 33 cell slide.  1 = twice as much
           room (240 x 67) and half-size text; 3 = a big-print 80 x 22.

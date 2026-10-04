@@ -1,13 +1,14 @@
-# charts-dot-exe
+# libcharts and charts
 
 ![a slide: three big numbers, a stacked bar chart, commentary](docs/img/kpi.png)
 
-Business graphics for the Linux console, the way a VGA card drew them: 16
+Business graphics for terminals, Linux framebuffers and DOS VGA: 16
 colours, hard pixels, dithered shading, a bitmap font, double-line frames and
 drop shadows. An agent writes the deck; you page through it with the arrow
 keys, fix a number in the built-in sheet, pin a note on a bar.
 
-One binary, no dependencies, no X, no Wayland. On a bare console it draws real
+One executable using the platform C and math libraries, with no external
+graphics or compression packages, X, or Wayland. On a Linux console it draws real
 pixels through `/dev/fb0`. Inside kitty, ghostty, wezterm or foot it sends the
 same picture through their graphics protocols. Anywhere else — ssh, tmux, a
 serial line — it falls back to half blocks, and `--ascii` below that.
@@ -15,12 +16,26 @@ serial line — it falls back to half blocks, and `--ascii` below that.
 ## Build
 
 ```sh
-make                          # ./charts   (C++17 compiler and make, nothing else)
-make test                     # 500-odd checks: CLI, fuzz, and the presenter on a pty
+make                          # libcharts.a + ./charts (C89 compiler, GNU make)
+make test                     # library, CLI, fuzz, and presenter checks
 make install PREFIX=~/.local  # or the default /usr/local
 ```
 
-The framebuffer needs you in the `video` group, which a desktop user normally is.
+`libcharts` contains the hand-written rasterizer, bitmap font, chart and slide
+renderers, and PNG/sixel/Kitty/cell encoders. The entire application, including
+the presenter and editor, is C89. [Embedding API and ownership](docs/LIBRARY.md),
+[a standalone C example](examples/embed.c), and the [port work record](docs/C89-PORT.md)
+describe the library boundary and verification. DOS uses an Open Watcom 32-bit
+build and a VGA adapter; see the [legacy build instructions](docs/LEGACY-BUILD.md).
+The [FreeDOS VGA screenshot](docs/img/freedos.png) comes from the actual guest.
+
+The default compiler flags suit GCC and Clang; override `CC` and `CFLAGS` for
+other compilers. Build against the target system's C library/ABI, or use a
+suitable static build. The host test suite additionally needs Bash and
+`timeout`; interactive tests need Python 3.
+
+Linux framebuffer access follows the device node's permissions; membership
+in `video` permits access on systems that assign the device to that group.
 
 ## Use
 
@@ -127,20 +142,23 @@ dither instead.
 - [`docs/INPUT.md`](docs/INPUT.md) — every accepted CSV and JSON data shape
 - [`docs/AGENT.md`](docs/AGENT.md) — driving charts from an agent or a script
 - [`docs/charts.1`](docs/charts.1) — man page
+- [`docs/LIBRARY.md`](docs/LIBRARY.md) — C API and ownership
+- [`docs/LEGACY-BUILD.md`](docs/LEGACY-BUILD.md) — FreeDOS, Open Watcom and QEMU
 
 ## Layout
 
 ```
-src/gfx.*       16-colour surfaces, dither inks, the bitmap font, indexed images
-src/png.cpp     PNG writer with its own deflate
-src/scene.*     one screenful: text cells + pixel surfaces -> cells or an image
-src/charts.cpp  every chart renderer, annotations, error bars
-src/diagram.*   shapes and flow diagrams
-src/deck.*      deck model, checking, saving        src/slide.cpp   slide layout and drawing
-src/display.*   framebuffer, kitty, sixel, cells    src/tui.cpp     the presenter
-src/data.* json.* spec.*   loaders, write-back, the chart spec
-tests/          smoke.sh (CLI), fuzz.py (random decks and data), tui.py (the presenter on a pty)
-tools/          mkfont.py regenerates src/font_data.inc
+include/charts.h   public C89 library API (libcharts.h is an alias)
+lib/gfx.c font.inc raster primitives and embedded bitmap font
+lib/scene.c       text cells and surfaces into indexed pixels or terminal cells
+lib/chart.c       all chart renderers, annotations, error bars
+lib/diagram.c     shapes and flow diagrams
+lib/slide.c       slide layout, typography and status bars
+lib/output.c      hand-written PNG/deflate, sixel, Kitty and cell encoders
+app/              JSON/CSV/decks, CLI, presenter/editor and OS adapters
+src/              original C++ implementation, kept only as a test oracle
+tests/            CLI/fuzz, PTY, allocation/codec, framebuffer and parity tests
+tools/            font generation and reproducible FreeDOS/Watcom staging
 ```
 
 ## Licence

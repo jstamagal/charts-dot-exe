@@ -785,6 +785,14 @@ has "shapes: unknown key, with a did-you-mean" "$TMP/shapesbad.out" 'did you mea
 has "shapes: text that does not fit" "$TMP/shapesbad.out" "does not fit its shape"
 has "shapes: no kind" "$TMP/shapesbad.out" "a shape needs one of: rect"
 has "shapes: an empty label" "$TMP/shapesbad.out" "a label with no"
+for kind in poly line arrow; do
+  printf '{"slides":[{"shapes":[{"%s":{"bad":"value"}}]}]}' "$kind" > "$TMP/shape-type.json"
+  "$BIN" "$TMP/shape-type.json" --png "$TMP/shape-type.png" > "$TMP/shape-type.out" 2>&1
+  check "shapes: object in $kind geometry renders a diagnostic without crashing" "$?" "1"
+done
+printf '{"slides":[{"shapes":[{"poly":[{"x":1},null,false]}]}]}' > "$TMP/shape-type.json"
+"$BIN" "$TMP/shape-type.json" --png "$TMP/shape-type.png" > "$TMP/shape-type.out" 2>&1
+check "shapes: malformed individual points render a diagnostic without crashing" "$?" "1"
 
 echo "== decks: --png"
 "$BIN" "$DECK/deck.json" --png "$TMP/s1.png" > "$TMP/png.stdout" 2>&1; check "--png exits 0" "$?" "0"
@@ -952,6 +960,21 @@ printf '{"display":{"size":[1e300,1e300],"scale":1e300},"slides":[{"title":"t","
 hostile_deck "a display size beyond an int" "$TMP/hd-size.json"
 "$BIN" "$TMP/hd-size.json" --check > "$TMP/hd-size.out" 2>&1; check "a display size beyond an int is an error" "$?" "1"
 has "a display size beyond an int is named" "$TMP/hd-size.out" "display.size"
+printf 'x,y\n-1e308,1\n1e308,2\n5,3\n' > "$TMP/hd-span.csv"
+printf '{"slides":[{"type":"scatter","xy":true,"data":"hd-span.csv","annotations":[{"x":"5","text":"here"}]}]}' > "$TMP/hd-span.json"
+hostile_deck "scatter x spanning the whole double range" "$TMP/hd-span.json"
+printf '{"slides":[{"blocks":[{"text":"a","weight":1e308},{"text":"b","weight":1e308}]}]}' > "$TMP/hd-weight.json"
+hostile_deck "block weights whose sum overflows" "$TMP/hd-weight.json"
+"$BIN" "$TMP/hd-weight.json" --check > "$TMP/hd-weight.out" 2>&1; check "block weights whose sum overflows still lay out" "$?" "0"
+printf '[{"a":1},5]' > "$TMP/hd-rec.json"
+"$BIN" "$TMP/hd-rec.json" --check > "$TMP/hd-rec.out" 2>&1
+has "a non-object record says why" "$TMP/hd-rec.out" "no numeric fields in records"
+printf '{"titl\277e":1,"slides":[{"text":"x"}]}' > "$TMP/hd-utf8.json"
+if [ $HAVE_PY -eq 1 ]; then
+  "$BIN" "$TMP/hd-utf8.json" --check --json > "$TMP/hd-utf8.out" 2>&1
+  python3 -c 'import json,sys; json.loads(open(sys.argv[1],"rb").read().decode("utf-8"))' "$TMP/hd-utf8.out" 2>/dev/null
+  check "--check --json stays valid UTF-8 for a malformed key" "$?" "0"
+fi
 if [ $HAVE_PY -eq 1 ]; then
   python3 -c 'print("k,v"); [print("%s%d,%d" % ("x" * 30000, i, i)) for i in range(3)]' > "$TMP/hd-long.csv"
   python3 -c 'import json; print(json.dumps({"slides": [{"title": "t", "type": "bar", "data": "hd-long.csv", "annotations": [{"at": "y" * 30000, "text": "hi"}], "colors": {"z" * 30000: "red"}}]}))' > "$TMP/hd-long.json"
