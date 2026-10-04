@@ -254,9 +254,10 @@ DISPLAY   "display": {...} in the deck; the launcher needs no flags
   scale   pixel multiplier on pixel displays.  auto = screen width / 960, so a
           1080p console is scale 2 = a 120 x 33 cell slide.  1 = twice as much
           room (240 x 67) and half-size text; 3 = a big-print 80 x 22.
-  size    [cols, rows] for --png and --print (default 120 x 33)
+  size    [cols, rows] for --png and --print (default 120 x 33; DOS 80 x 29)
   ascii   true = plain ASCII only          color   false = no colour (dither instead)
   Design for 120 x 33 unless you set scale; --check and --png use the same grid.
+  On DOS the screen is VGA, 80 x 29 cells for the slide: design for that.
 
 ==============================================================================
 WHAT FITS   (120 x 33 cells; text that does not fit is cut, never shrunk)
