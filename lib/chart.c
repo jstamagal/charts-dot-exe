@@ -781,6 +781,45 @@ static int pie_probe(const pie_geometry *g,int x,int y)
     for(k=0;k<g->n;++k)if(f>=g->s[k].a0 && f<g->s[k].a1)return (int)k==g->explode?-1:(int)k;
     return -1;
 }
+/* Crossings of row y with the ring edges around one centre, and with the
+   slice boundary rays inside them, in pixel x: what that centre's in_ring
+   and slice tests depend on can change only at these. A row clear of the
+   ring has none, and a ray outside it changes nothing. The ray at a = 0
+   points straight up, where the angle wraps. */
+static size_t row_crossings(const pie_geometry *g,const double *ray_cos,const double *ray_sin,
+                            double ox,double oy,int y,double *out)
+{
+    double dy,e,c;size_t k,m;
+    m=0;dy=(y+0.5-oy)/g->ry;
+    if(!(dy*dy<=1))return 0;
+    e=g->radius*sqrt(1-dy*dy);out[m++]=ox-e;out[m++]=ox+e;
+    if(g->hole>0 && dy*dy<g->hole*g->hole){c=g->radius*sqrt(g->hole*g->hole-dy*dy);out[m++]=ox-c;out[m++]=ox+c;}
+    for(k=0;k<=g->n;++k)if(ray_sin[k]*dy>0){c=ox+g->radius*dy*ray_cos[k]/ray_sin[k];if(fabs(c-ox)<=e+1)out[m++]=c;}
+    return m;
+}
+/* pie_probe for every pixel of row y. A probe per pixel is an atan2 and a
+   dozen double operations; without an FPU each is a software routine, and a
+   pie took minutes on a 386SX. The answer is constant between crossings, so
+   pixels within a pixel of one get the exact probe and every run between
+   them takes the probe of its first pixel: the same pixels, a few probes. */
+static void pie_row(const pie_geometry *g,const double *ray_cos,const double *ray_sin,
+                    double *cross,unsigned char *near,int w,int y,int *own)
+{
+    size_t m,k;int x,v,f,exact;double c;
+    m=row_crossings(g,ray_cos,ray_sin,g->cx,g->cy,y,cross);
+    if(g->explode>=0)m+=row_crossings(g,ray_cos,ray_sin,g->s[g->explode].cx,g->s[g->explode].cy,y,cross+m);
+    exact=fabs(y+0.5-g->cy)<1.5 || (g->explode>=0 && fabs(y+0.5-g->s[g->explode].cy)<1.5);
+    memset(near,exact,(size_t)w);
+    for(k=0;k<m && !exact;++k) {
+        c=cross[k];
+        if(!lc_finite(c)){memset(near,1,(size_t)w);break;}
+        if(c<-2 || c>w+2)continue;
+        /* the two pixels whose centres lie within a pixel of it */
+        f=(int)floor(c+0.5);for(x=f-1;x<=f;++x)if(x>=0 && x<w)near[x]=1;
+    }
+    v=-1;
+    for(x=0;x<w;++x){if(near[x] || !x || near[x-1])v=pie_probe(g,x,y);own[x]=v;}
+}
 static int owner(const int *own,int w,int h,int x,int y)
 { return x<0 || y<0 || x>=w || y>=h ? -1 : own[(size_t)y*w+x]; }
 static const char *percent(lc_scene *sc,double frac,int prec)
@@ -791,6 +830,7 @@ static plot draw_pie(render *rr,lc_rect r,lc_rect clip,int solid,double hole)
     slice *sl;legend_entry *leg;pie_geometry g;lc_rect area;lc_ink edge;
     size_t cap,n,i,k,pixels;double total,v,acc,best,asp,tilt,dp,margin,room_x,room_y,radius,ry,cx,cy,ang,lr,frac,px,py;
     int by_row,pin,explode,want,legw,ly,nrows,w,h,x,y,idp,dz,s,ws,rgt,dn,rim,right,c,*own,*wall;
+    double *ray_cos,*ray_sin,*cross;unsigned char *near;
     const char *label;
     sc=rr->sc;ds=&rr->ds;o=&rr->o;plot_init(&p,sc,clip);
     by_row=ds->series_count==1 || (ds->series_count==2 && hidden(ds->series));
@@ -840,7 +880,11 @@ static plot draw_pie(render *rr,lc_rect r,lc_rect clip,int solid,double hole)
     g.s=sl;g.n=n;g.explode=explode;g.radius=radius;g.ry=ry;g.cx=cx;g.cy=cy;g.hole=hole;
     w=sf->w;h=sf->h;if(!lc_size_mul((size_t)w,(size_t)h,&pixels)){lc_scene_fail(sc,LC_EOVERFLOW);return p;}
     own=(int *)lc_render_array(sc,pixels,sizeof *own);wall=(int *)lc_render_array(sc,pixels,sizeof *wall);if(!own || !wall)return p;
-    for(y=0;y<h;++y)for(x=0;x<w;++x){own[(size_t)y*w+x]=pie_probe(&g,x,y);wall[(size_t)y*w+x]=-1;}
+    ray_cos=(double *)lc_render_array(sc,n+1,sizeof *ray_cos);ray_sin=(double *)lc_render_array(sc,n+1,sizeof *ray_sin);
+    cross=(double *)lc_render_array(sc,2*(n+5),sizeof *cross);near=(unsigned char *)lc_render_array(sc,(size_t)w,1);
+    if(!ray_cos || !ray_sin || !cross || !near)return p;
+    for(i=0;i<=n;++i){ang=(i<n?sl[i].a0:1)*2*PI-PI/2;ray_cos[i]=cos(ang);ray_sin[i]=sin(ang);}
+    for(y=0;y<h;++y){pie_row(&g,ray_cos,ray_sin,cross,near,w,y,own+(size_t)y*w);for(x=0;x<w;++x)wall[(size_t)y*w+x]=-1;}
     idp=(int)lc_round(dp);
     if(idp>0)for(y=0;y<h;++y)for(x=0;x<w;++x) {
         if(owner(own,w,h,x,y)>=0)continue;
