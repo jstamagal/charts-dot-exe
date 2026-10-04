@@ -263,7 +263,7 @@ of RAM, `--check` on the demo deck from files also ran out of memory at its
 default 120 x 33 canvas; on DOS that default is now the VGA slide area,
 80 x 29.
 
-The current build is 414,160 bytes for `CHARTS.EXE`. Its `TEST.BAT` wrote
+That build was 414,160 bytes for `CHARTS.EXE`. Its `TEST.BAT` wrote
 `WATCOM_19_DOS32_DEMO_FILES_HARD_SOFT_SAVE_PASS`. `CHECK.TXT` reports the
 demo (6 slides), the demo deck from files (5 slides, 7 label-fit warnings at
 80 columns), a deck with a CSV (3 slides), a CSV and a TSV, all with no errors.
@@ -275,3 +275,33 @@ the same four checks and presented all five slides of the demo deck from files
 in VGA. QEMU still executes x87 instructions with `-fpu`, so the target
 configuration, an 86Box 386SX at 25 MHz with no coprocessor, is the
 acceptance test for a 386SX without an FPU.
+
+### A 386SX without an FPU
+
+The disk image above then ran in 86Box on an emulated 386SX at 25 MHz with
+no coprocessor: an Acer-style 325AX board with an AMI BIOS (1991), 4 MiB of
+RAM, a Trident TVGA8900 and an XT-IDE Universal BIOS r631 serving the IDE
+disk. The BIOS reports "Numeric Processor: None". With hard disk C in CMOS set
+to type 47 for the same drive, FreeDOS listed it twice, as `C:` and `D:`,
+because the AMI BIOS and XT-IDE both answered for it; setting CMOS hard
+disk C to "Not Installed" leaves XT-IDE alone and only `C:`. All four
+`--check` runs passed and the VGA presenter showed every slide of both decks.
+Its full 640 x 480 frames match the earlier builds pixel for pixel.
+
+Without an FPU every double operation is a library routine, and that made
+it slow: a pie slide took two to three minutes under `--check`, and a VGA
+page turn of the demo deck from files 13 to 33 s. A build that logged the
+time of each phase of a page showed four costs: an `atan2` and a dozen
+double operations for every pixel of a pie; a VGA blit that tested every
+pixel against every plane (11 s a page); double clipping for every lit
+pixel of text; and, on 3-D pies, an upward search from every empty pixel for
+the wall above it. Each was replaced by integer or per-row work with the
+same pixels, checked against the oracle and random decks. A page turn now
+takes 1.7 to 8 s on that machine: about 1.4 s of blit, 1.3 to 1.5 s of
+composing the image and up to 5 s of rendering, most of it for the 3-D
+donut. A pie slide under `--check` takes about 20 s.
+
+QEMU can stand in for that machine when timing: TCG with `-icount shift=7`
+and `NO87=1` set in the guest ran the same build's phases a steady 2.9
+times faster than the 86Box 386SX-25, slide by slide, so the guest's
+`clock()` times scaled by 2.9 predicted the 86Box times to within 0.1 s.
