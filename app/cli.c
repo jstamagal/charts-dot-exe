@@ -232,7 +232,7 @@ fail:
   free(name_copy);return 0;
 }
 
-void app_print_version(FILE *f){fputs("charts 0.1.5\n",f);}
+void app_print_version(FILE *f){fputs("charts 0.1.6\n",f);}
 void app_print_types(FILE *f)
 {
   static const char *const desc[]={
