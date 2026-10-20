@@ -96,10 +96,15 @@ oracle:
 	mkdir -p build
 	$(CXX) -std=c++17 -O2 -o build/charts-oracle src/*.cpp
 
-SKILLDIR = $(HOME)/.agents/skills
+# The skill's real copy goes to ~/.agents/skills/charts, linked into each
+# agent's global skills dir (claude codex js pi omp opencode; a missing agent
+# is skipped). AGENTS=claude,codex picks some, AGENTS=none links none,
+# SKILL_COPY=1 copies instead of linking. See tools/install-skill.sh.
 install-skill: skill
-	mkdir -p $(SKILLDIR)/charts
-	cp -r skill/charts/. $(SKILLDIR)/charts/
+	@AGENTS="$(AGENTS)" SKILL_COPY="$(SKILL_COPY)" sh tools/install-skill.sh install
+
+uninstall-skill:
+	@AGENTS="$(AGENTS)" sh tools/install-skill.sh uninstall
 
 gallery: all
 	./charts skill/charts/assets/gallery/deck.json --check
@@ -122,7 +127,7 @@ dist-targets:
 print-sources:
 	@echo $(APPSRC) $(LIBSRC)
 
-.PHONY: all test test-lib test-stress asan test-asan static install uninstall clean run oracle install-skill gallery skill dist dist-targets print-sources
+.PHONY: all test test-lib test-stress asan test-asan static install uninstall clean run oracle install-skill uninstall-skill gallery skill dist dist-targets print-sources
 
 # Optional migration oracle: C++ is used only for comparison with the frozen
 # original source, never to build the library or application.

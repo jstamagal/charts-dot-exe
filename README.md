@@ -109,6 +109,21 @@ write: mistakes come back with their JSON path and a suggestion
 `--png` lets the agent look at what it made. [`docs/AGENT.md`](docs/AGENT.md)
 is the working loop; `skill/` is the same thing packaged as an agent skill.
 
+```sh
+make install-skill                  # copy to ~/.agents/skills/charts, link into every agent
+make install-skill AGENTS=claude    # one agent (or a list: AGENTS=claude,codex)
+make install-skill AGENTS=none      # only ~/.agents/skills
+make install-skill SKILL_COPY=1     # copies instead of symlinks
+make uninstall-skill                # same AGENTS choices
+```
+
+The agents and their global skill directories: claude
+(`${CLAUDE_CONFIG_DIR:-~/.claude}/skills`), codex (`${CODEX_HOME:-~/.codex}/skills`),
+js (`~/.js/skills`), pi (`~/.pi/agent/skills`), omp (`~/.omp/agent/skills`) and
+opencode (`${XDG_CONFIG_HOME:-~/.config}/opencode/skills`). The links are relative
+(`../../.agents/skills/charts`); an agent that is not installed is skipped, and a
+directory in the way is moved to `charts.bak-<date>`, not deleted.
+
 The presenter watches the deck and its data files. When the agent rewrites
 them, the screen follows.
 

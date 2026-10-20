@@ -70,4 +70,5 @@ only as a test oracle. The agent skill in `skill/charts/` is generated from
 
 `make && sudo make install` installs to `/usr/local` (what is on PATH here).
 Do it after every release, so `/usr/local/bin/charts` is the released version.
-`make install-skill` copies the skill to the user's skill directory.
+`make install-skill` installs the skill to `~/.agents/skills/charts` and links it
+into every agent's skill directory (`AGENTS=`, `SKILL_COPY=1`: see README).
