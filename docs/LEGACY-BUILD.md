@@ -68,6 +68,23 @@ that path hangs in the Watcom 1.9 emulator. The verified full-demo procedure
 uses `fpc`. The flag is recorded in the generated
 `BUILD.BAT`; preparing a new disk replaces the old one.
 
+## Cross build on Linux (releases)
+
+The release archive `charts-<version>-i386-freedos.zip` is built on Linux
+by `make dist TARGET=i386-freedos` with Open Watcom v2 (the 2026-10-01
+snapshot, pinned in `tools/ci-setup.sh`): the same `wcl386 -bt=dos -3 -fpc
+-ox` compile and `wlink system dos4g option stack=256k` link, without
+`-za`. Open Watcom v2's headers do not compile in strict ANSI mode
+(`io.h` names `off64_t`, which `sys/types.h` hides under `-za`, and
+`sys/stat.h` hides `_stat`), and with extensions on `near` is a keyword,
+so the pie code no longer names a variable `near`. The archive holds
+`CHARTS.EXE`, `DOS4GW.EXE` and the docs in 8.3 names.
+
+`tests/dosbox.sh` runs that archive in DOSBox without a window: `--version`,
+`--demo --check`, and the six demo slides exported as PNGs, which must be
+byte-identical to a host build's. CI runs it on every push and release.
+That is DOSBox, not FreeDOS on a 386SX; the measurements below stand.
+
 ## Build and test in FreeDOS
 
 At the FreeDOS prompt, run:

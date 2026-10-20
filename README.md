@@ -18,7 +18,7 @@ serial line — it falls back to half blocks, and `--ascii` below that.
 Every version has a [GitHub Release](https://github.com/jstamagal/charts-dot-exe/releases)
 with a ready program for each system, built and tested by GitHub Actions:
 Linux (static, x86_64, aarch64, armv7, i686 with SSE2, riscv64), macOS (arm64,
-x86_64), FreeBSD (x86_64). Each archive holds the program, this README, the
+x86_64), FreeBSD (x86_64), FreeDOS (32-bit, DOS/4GW; a `.zip` with 8.3 names). Each archive holds the program, this README, the
 licence, the man page and the agent skill; `SHA256SUMS` lists their digests.
 Versions stay below 1.0 for now.
 

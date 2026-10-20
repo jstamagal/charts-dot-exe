@@ -39,14 +39,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: zig and qemu
-        run: tools/ci-setup.sh zig qemu
-      - name: build every zig target
-        run: |
-          for t in $(tools/dist.sh --list); do
-            case $t in *-freedos) continue ;; esac
-            tools/dist.sh "$t"
-          done
+      - name: zig, qemu, Open Watcom and DOSBox
+        run: tools/ci-setup.sh zig qemu watcom dosbox
+      - name: build every target
+        run: for t in $(tools/dist.sh --list); do tools/dist.sh "$t"; done
       - name: smoke test the Linux targets
         run: |
           v=$(sed -n 's/^#define LC_VERSION "\(.*\)"$/\1/p' include/charts.h)
@@ -62,3 +58,7 @@ jobs:
           for t in x86_64-linux-musl i686-linux-musl; do
             python3 tests/tui.py "x/$t/charts-$v-$t/charts" examples
           done
+      - name: run the FreeDOS archive in DOSBox
+        run: |
+          make
+          tests/dosbox.sh dist/charts-*-i386-freedos.zip ./charts

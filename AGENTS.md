@@ -39,8 +39,9 @@ only as a test oracle. The agent skill in `skill/charts/` is generated from
      gallery changed: it regenerates `skill/charts/SKILL.md`, its references
      and the gallery PNGs. Commit the regenerated files with the change.
    - `make dist TARGET=<target>` when platform code or the build changed
-     (`make dist-targets` lists them; needs `zig`). CI builds them all on
-     every push.
+     (`make dist-targets` lists them; needs `zig`, or Open Watcom v2 in
+     `$WATCOM` for `i386-freedos`, which `tests/dosbox.sh` runs in DOSBox).
+     CI builds them all on every push.
    - Real check: run the change on a deck (`charts deck.json --check`, then
      `--png-dir` and look at the PNGs). A green test is not proof it works.
 5. **Commit.** Message style of this repo: `area: what changed, in plain

@@ -2,16 +2,17 @@
 # Build charts for one target and pack it for a release:
 #   tools/dist.sh <target>     (or: make dist TARGET=<target>)
 #   tools/dist.sh --list       the targets this script knows
-# Output: dist/charts-<version>-<target>.tar.gz holding the program,
-# README.md, LICENSE, the man page and the agent skill.
+# Output: dist/charts-<version>-<target>.tar.gz (.zip for FreeDOS) holding
+# the program, README.md, LICENSE, the man page and the agent skill.
 #
-# Targets cross-compile with `zig cc` (static musl on Linux). Set CC to use
-# another compiler, e.g. CC="clang -arch arm64" on a Mac.
+# Unix targets cross-compile with `zig cc` (static musl on Linux). Set CC to
+# use another compiler, e.g. CC="clang -arch arm64" on a Mac.
+# FreeDOS builds with Open Watcom v2 from $WATCOM (32-bit, DOS/4GW extender).
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TARGETS="x86_64-linux-musl aarch64-linux-musl armv7-linux-musleabihf i686-linux-musl
-riscv64-linux-musl x86_64-freebsd aarch64-macos x86_64-macos"
+riscv64-linux-musl x86_64-freebsd aarch64-macos x86_64-macos i386-freedos"
 
 if [ "${1:-}" = --list ]; then
     for t in $TARGETS; do echo "$t"; done
@@ -43,8 +44,46 @@ case $TARGET in
     x86_64-freebsd)          ZIG=x86_64-freebsd ;;
     aarch64-macos)           ZIG=aarch64-macos ;;
     x86_64-macos)            ZIG=x86_64-macos ;;
+    i386-freedos)            ZIG= ;;
     *) echo "dist: unknown target $TARGET (tools/dist.sh --list)" >&2; exit 2 ;;
 esac
+
+if [ "$TARGET" = i386-freedos ]; then
+    # Open Watcom v2 on a Unix host. Its headers do not compile under -za
+    # (strict ANSI) the way Watcom 1.9's do, so this build keeps extensions
+    # on; docs/LEGACY-BUILD.md has the FreeDOS-hosted 1.9 build.
+    : "${WATCOM:?dist: set WATCOM to an Open Watcom v2 install}"
+    case $(uname -s)-$(uname -m) in
+        Linux-x86_64) owbin=$WATCOM/binl64 ;;
+        Linux-*) owbin=$WATCOM/binl ;;
+        *) owbin=$WATCOM/binnt64 ;;
+    esac
+    PATH=$owbin:$PATH; INCLUDE=$WATCOM/h; export PATH INCLUDE WATCOM
+    mkdir -p "$WORK/obj"
+    {
+        echo "system dos4g"; echo "option quiet"; echo "option stack=256k"
+        echo "name $WORK/CHARTS.EXE"
+    } > "$WORK/link.rsp"
+    for src in $SOURCES; do
+        obj=$WORK/obj/$(basename "$src" .c).obj
+        wcl386 -q -bt=dos -3 -fpc -ox -c -i="$ROOT/include" -i="$ROOT/app" -i="$ROOT/lib" \
+            -fo="$obj" "$ROOT/$src"
+        echo "file $obj" >> "$WORK/link.rsp"
+    done
+    wlink @"$WORK/link.rsp"
+    # 8.3 names throughout: FAT without long names is the target.
+    pkg=$WORK/CHARTS
+    mkdir -p "$pkg"
+    cp "$WORK/CHARTS.EXE" "$pkg/CHARTS.EXE"
+    cp "$WATCOM/binw/dos4gw.exe" "$pkg/DOS4GW.EXE"
+    cp "$ROOT/README.md" "$pkg/README.MD"
+    cp "$ROOT/LICENSE" "$pkg/LICENSE"
+    cp "$ROOT/docs/charts.1" "$pkg/CHARTS.1"
+    rm -f "$OUT/$NAME.zip"
+    (cd "$WORK" && zip -q -X -r "$OUT/$NAME.zip" CHARTS)
+    echo "$OUT/$NAME.zip"
+    exit 0
+fi
 
 if [ -n "${CC:-}" ] && [ "$CC" != cc ]; then
     COMPILE=$CC; STRIP=

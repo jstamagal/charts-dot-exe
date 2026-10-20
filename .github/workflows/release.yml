@@ -32,20 +32,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-linux-musl,      os: ubuntu-24.04, test: smoke }
-          - { target: aarch64-linux-musl,     os: ubuntu-24.04, test: smoke }
-          - { target: armv7-linux-musleabihf, os: ubuntu-24.04, test: smoke }
-          - { target: i686-linux-musl,        os: ubuntu-24.04, test: smoke }
-          - { target: riscv64-linux-musl,     os: ubuntu-24.04, test: smoke }
-          - { target: x86_64-freebsd,         os: ubuntu-24.04, test: vm }
+          - { target: x86_64-linux-musl,      os: ubuntu-24.04, tools: zig qemu, test: smoke }
+          - { target: aarch64-linux-musl,     os: ubuntu-24.04, tools: zig qemu, test: smoke }
+          - { target: armv7-linux-musleabihf, os: ubuntu-24.04, tools: zig qemu, test: smoke }
+          - { target: i686-linux-musl,        os: ubuntu-24.04, tools: zig qemu, test: smoke }
+          - { target: riscv64-linux-musl,     os: ubuntu-24.04, tools: zig qemu, test: smoke }
+          - { target: x86_64-freebsd,         os: ubuntu-24.04, tools: zig, test: vm }
+          - { target: i386-freedos,           os: ubuntu-24.04, tools: watcom dosbox, test: dosbox }
           - { target: aarch64-macos,          os: macos-15, cc: clang -arch arm64,  test: smoke }
           - { target: x86_64-macos,           os: macos-15, cc: clang -arch x86_64, test: smoke }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: tools
-        if: runner.os == 'Linux'
-        run: tools/ci-setup.sh zig qemu
+        if: matrix.tools
+        run: tools/ci-setup.sh ${{ matrix.tools }}
       - name: GNU timeout for the tests
         if: runner.os == 'macOS'
         run: brew install coreutils && echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
@@ -64,6 +65,9 @@ jobs:
       - name: presenter tests on the packed program (where it runs natively)
         if: matrix.test == 'smoke' && (runner.os == 'macOS' || matrix.target == 'x86_64-linux-musl' || matrix.target == 'i686-linux-musl')
         run: python3 tests/tui.py "$(echo x/charts-*/charts)" examples
+      - name: run the DOS archive in DOSBox, PNGs against a host build
+        if: matrix.test == 'dosbox'
+        run: make && tests/dosbox.sh dist/charts-*-i386-freedos.zip ./charts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.target }}
