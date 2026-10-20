@@ -47,6 +47,10 @@ other compilers. Build against the target system's C library/ABI, or use a
 suitable static build. The host test suite additionally needs Bash and
 `timeout`; interactive tests need Python 3.
 
+Native NetBSD and OpenIndiana checks on this development host use the
+existing libvirt VMs under `qemu:///system`. See [native VM testing](docs/NATIVE-TESTS.md)
+before reporting that either test environment is unavailable.
+
 On Windows (10 1809 or later) `charts.exe` uses the console API: UTF-8 output
 and VT sequences in Windows Terminal or the classic console, keys read as
 console events, cells by default and `--gfx sixel` or `kitty` on request.

@@ -164,7 +164,7 @@ class JobSession(Session):
             except OSError:
                 pass
             os.tcsetpgrp(0, job)
-            os.write(w, str(job).encode())
+            os.write(w, (str(job) + " " + os.ttyname(0)).encode())
             os.close(w)
             while True:  # a shell's wait: stops come and go, the exit ends it
                 _, st = os.waitpid(job, os.WUNTRACED)
@@ -172,7 +172,11 @@ class JobSession(Session):
                     os._exit(0)
         os.close(w)
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-        self.job = int(os.read(r, 32) or b"0")
+        job, slave = os.read(r, 4096).decode().split(" ", 1)
+        self.job = int(job)
+        # illumos rejects tcgetattr on the master; inspect the terminal
+        # through its slave on every platform, including while the job stops.
+        self.term_fd = os.open(slave, os.O_RDWR | os.O_NOCTTY)
         os.close(r)
         self.raw = b""
         self.read(0.7)
@@ -185,7 +189,8 @@ class JobSession(Session):
             pass
         # No /proc (macOS, the BSDs): ps reports the state.
         try:
-            out = subprocess.run(["ps", "-o", "stat=", "-p", str(self.job)],
+            field = "s=" if sys.platform.startswith("sunos") else "stat="
+            out = subprocess.run(["ps", "-o", field, "-p", str(self.job)],
                                  capture_output=True, text=True).stdout.strip()
             return out.startswith("T")
         except OSError:
@@ -197,6 +202,7 @@ class JobSession(Session):
                 os.kill(self.job, sig)
             except OSError:
                 pass
+        os.close(self.term_fd)
         super().kill()
 
 
@@ -473,7 +479,7 @@ check("and after SIGTERM", b"\x1b[?25h" in s.raw)
 s.kill()
 
 s = JobSession([deck, "--gfx", "cells"])
-cooked = lambda: bool(termios.tcgetattr(s.fd)[3] & termios.ICANON)
+cooked = lambda: bool(termios.tcgetattr(s.term_fd)[3] & termios.ICANON)
 check("the presenter runs raw", not cooked())
 mark = len(s.raw)
 os.kill(s.job, signal.SIGTSTP)

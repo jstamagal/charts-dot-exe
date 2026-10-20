@@ -13,6 +13,10 @@
 #endif
 #else
 #define APP_POSIX 1
+/* illumos hides window-size ioctls under POSIX feature tests. */
+#if defined(__sun) && !defined(__EXTENSIONS__)
+#define __EXTENSIONS__ 1
+#endif
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
@@ -914,8 +918,8 @@ app_stamp app_file_stamp(const char *path)
 #if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 12)
     stamp.nanoseconds=st.st_mtim.tv_nsec;
 #endif
-#elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12) || defined(__NetBSD__) || defined(__OpenBSD__)
-    /* POSIX.1-2008 st_mtim: musl, and the BSDs in that mode. */
+#elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__sun)
+    /* POSIX.1-2008 st_mtim: musl, the BSDs in that mode, and illumos. */
     stamp.nanoseconds=st.st_mtim.tv_nsec;
 #endif
     return stamp;
