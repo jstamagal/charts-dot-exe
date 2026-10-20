@@ -14,7 +14,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define LC_VERSION "0.1.2"
+#define LC_VERSION "0.1.3"
 #define LC_BG_NONE 255
 #define LC_BOX_SINGLE 0
 #define LC_BOX_DOUBLE 1
