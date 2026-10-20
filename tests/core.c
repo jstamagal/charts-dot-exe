@@ -84,6 +84,33 @@ int main(void) {
             assert(found==1);lc_free(ctx,cells);lc_scene_destroy(scene);lc_scratch_reset(ctx);
         }
     }
+    {
+        lc_scene *scene; lc_mode mode; lc_image im; lc_dataset ds;
+        lc_rect rect; lc_series series[2]; lc_chart_options opts; lc_color colors[2];
+        const char *labels[]={"Decode tok/s","First token s"};
+        double yoda[]={2294,1.2},vader[]={2787,0.3};
+        size_t count[2][2],x,y;int half;
+        memset(&ds,0,sizeof ds);memset(series,0,sizeof series);memset(count,0,sizeof count);
+        ds.labels=labels;ds.label_count=2;ds.series=series;ds.series_count=2;
+        series[0].name="yoda";series[0].values=yoda;series[0].count=2;
+        series[1].name="vader";series[1].values=vader;series[1].count=2;
+        colors[0].name="yoda";colors[0].color=10;colors[1].name="vader";colors[1].color=12;
+        lc_chart_options_init(&opts);opts.type="compare";opts.depth=0;opts.colors=colors;opts.color_count=2;
+        mode.pixel=1;mode.ascii=0;mode.color=1;
+        assert(lc_scene_create(ctx,100,24,mode,&scene)==LC_OK);
+        rect.x=rect.y=0;rect.w=100;rect.h=24;
+        assert(lc_render_chart(scene,rect,&ds,&opts)==LC_OK);
+        assert(lc_scene_to_image(scene,&im)==LC_OK);
+        for(y=0;y<(size_t)im.height;y++)for(x=0;x<(size_t)im.width;x++) {
+            half=x<(size_t)im.width/2?0:1;
+            if(im.pixels[y*im.stride+x]==10)count[half][0]++;
+            if(im.pixels[y*im.stride+x]==12)count[half][1]++;
+        }
+        assert(count[0][0]>100 && count[1][0]>count[0][0]/2);
+        assert(count[0][0]>count[0][1]*7/10 && count[0][0]<count[0][1]);
+        assert(count[1][1]>count[1][0]/6 && count[1][1]<count[1][0]/3);
+        lc_free(ctx,im.pixels);lc_scene_destroy(scene);lc_scratch_reset(ctx);
+    }
 
     assert(!strcmp(lc_fmt_val(ctx,-1234.5,-1),"-1,234.5"));
     assert(!strcmp(lc_fmt_axis(ctx,1200000),"1.2M"));

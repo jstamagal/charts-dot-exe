@@ -12,7 +12,7 @@
 #define EMPTY(s) (!(s)||!(s)[0])
 #define KEY(s) (strcmp(k,(s))==0)
 
-static const char *const chart_types[]={"bar","stacked","hbar","dumbbell","line","area","pie","pie3d","donut","scatter","hist","table"};
+static const char *const chart_types[]={"bar","stacked","hbar","dumbbell","line","area","pie","pie3d","donut","scatter","hist","table","compare"};
 static const char *const palette_names[]={"dos","ega","cga","ice","fire","green","amber","mono"};
 static const char *const theme_names[]={"dos","black","light"};
 static char *copy_work(tui_state *p,const char *s) {
@@ -290,7 +290,7 @@ static void tweak(tui_state *p,const char *k) {
     if (!b) { tui_say(p,"no chart on this slide",1); return; }
     if (app_block_options(p->work,p->deck,b,NULL,&o)!=LC_OK) { tui_say(p,"out of memory",1); return; }
     if (KEY("t")||KEY("T")) {
-        at=0; n=12; dir=KEY("T") ? -1 : 1; for (i=0;i<12;i++) if (lc_name_eq(chart_types[i],lc_chart_type(o.type))) at=(int)i;
+        at=0; n=(int)(sizeof chart_types/sizeof chart_types[0]); dir=KEY("T") ? -1 : 1; for (i=0;i<(size_t)n;i++) if (lc_name_eq(chart_types[i],lc_chart_type(o.type))) at=(int)i;
         if (!replace(p,&b->spec.type,chart_types[(at+dir+n)%n])) return;
         flag=APP_SPEC_TYPE; tui_say(p,join(p,"type: ",b->spec.type,""),0);
     } else if (KEY("p")||KEY("P")) {

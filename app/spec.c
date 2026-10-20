@@ -9,7 +9,7 @@
 
 static const char *app_types[] = {
   "bar", "stacked", "hbar", "dumbbell", "line", "area", "pie", "pie3d",
-  "donut", "scatter", "hist", "table", NULL
+  "donut", "scatter", "hist", "table", "compare", NULL
 };
 static const char *app_palettes[] = {
   "dos", "ega", "cga", "ice", "fire", "green", "amber", "mono", NULL

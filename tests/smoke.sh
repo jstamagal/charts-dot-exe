@@ -1008,6 +1008,14 @@ if [ $HAVE_PY -eq 1 ]; then
   python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["charts"][0]; assert c["series"]==["yoda","vader"] and c["categories"]==["Decode tok/s","First token s"] and c["grouped_by"]=="metric"' "$TMP/grouping.json"
   check "check JSON exposes interpreted grouping" "$?" "0"
 fi
+printf 'metric,yoda,vader\nDecode tok/s,2294,2787\nFirst token s,1.2,0.3\n' > "$TMP/compare.csv"
+"$BIN" "$TMP/compare.csv" -t compare --values --print --size 100x30 > "$TMP/compare.out" 2>&1
+check "compare accepts metric rows" "$?" "0"
+for word in 'Decode tok/s' 'First token s' 'yoda' 'vader' '2,294' '0.3'; do
+  has "compare renders $word" "$TMP/compare.out" "$word"
+done
+"$BIN" "$TMP/compare.csv" -t compare --check > "$TMP/compare-check.out" 2>&1
+has "compare fits at default size" "$TMP/compare-check.out" "0 warnings"
 
 # Numeric-X lines must not draw the X column as a Y series.
 printf 'run,yoda,vader\n13,2294,2787\n17,2400,2800\n991,2500,2900\n' > "$TMP/line-xy.csv"

@@ -23,7 +23,7 @@ os.makedirs(outdir, exist_ok=True)
 for f in ("revenue.csv", "quarterly.csv"):
     open(os.path.join(outdir, f), "wb").write(open(os.path.join(examples, f), "rb").read())
 
-TYPES = ["bar", "stacked", "hbar", "dumbbell", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table",
+TYPES = ["bar", "stacked", "hbar", "dumbbell", "line", "area", "pie", "pie3d", "donut", "scatter", "hist", "table", "compare",
          "column", "xy", "", "barr", "PIE", 7, None]
 WORDS = ["", "a", "Apr", "revenue", "日本語", "🎉🎉", "x" * 300, "\x1b[2J", "nan", "-", "0", "‮", "a\nb", "\t", "é" * 40]
 NUMS = [0, 1, -1, 0.5, 1e308, -1e308, 1e-300, 2**53, -2**63, 2**64, 12345678901234567890, 1e400, -0.0, 3, 42, 100, 99999]

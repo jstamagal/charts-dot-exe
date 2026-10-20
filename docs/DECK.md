@@ -221,7 +221,7 @@ ignoring `layout`. The usual dashboard slide:
 
 | field | |
 | --- | --- |
-| `type` | `bar` `stacked` `hbar` `dumbbell` `line` `area` `pie` `pie3d` `donut` `scatter` `hist` `table` |
+| `type` | `bar` `stacked` `hbar` `dumbbell` `line` `area` `pie` `pie3d` `donut` `scatter` `hist` `table` `compare` |
 | `title` `subtitle` `xlabel` `ylabel` | text |
 | `values` | numbers on the bars / points (default false) |
 | `legend` `grid` `shadow` | default true |
@@ -232,7 +232,7 @@ ignoring `layout`. The usual dashboard slide:
 | `explode` | pie: 0-based row to pop out, or `true` for the biggest |
 | `min` `max` | pin the value axis. Bars on an axis that does not start at zero are drawn torn, with a break in the axis |
 | `prec` | decimals in value labels and tables (default: as many as the CSV wrote) |
-| `errors` | whiskers from other columns: `{"tg": "tg sd"}` for ±, `{"tg": ["tg min", "tg max"]}` for a range, or `"sd"` / `["min", "max"]` on the first series. The columns named become whiskers, not series. Bar, hbar, line and scatter |
+| `errors` | whiskers from other columns: `{"tg": "tg sd"}` for ±, `{"tg": ["tg min", "tg max"]}` for a range, or `"sd"` / `["min", "max"]` on the first series. The columns named become whiskers, not series. Bar, hbar, line, scatter and compare |
 | `bins` | histogram buckets (default 10) |
 | `xy` | first numeric column is the X axis (scatter, or a line over numeric X) |
 | `transpose` `no_header` `labels_col` `series_col` `label_key` `delim` | how to read the file; see [INPUT.md](INPUT.md). `series_col` counts columns from 1 with the labels as column 1, and keeps the columns `errors` names; `--describe` prints the numbers |
@@ -242,6 +242,7 @@ Choosing a type:
 | the point is | use |
 | --- | --- |
 | compare categories | `bar`; `hbar` when names are long or it is a ranking |
+| models across metrics with different units | `compare`: one independent horizontal-bar panel per metric row |
 | before and after, per category | `dumbbell`: a dot per series, an arrow to the last |
 | parts of a total, per category | `stacked` |
 | change over time | `line`; `area` for one or two series where volume matters |
@@ -253,6 +254,23 @@ Choosing a type:
 
 A pie of one series has a slice per row; of several series, a slice per series
 (each summed).
+
+### Compare metrics with different units
+
+Use `"type": "compare"`. The label column names the metrics (include each
+unit in its name); numeric columns name the models or systems. For example:
+
+```csv
+metric,yoda,vader
+Decode (tok/s),2294,2787
+First token (s),1.2,0.3
+```
+
+Each row gets a panel with its own axis. Model colours stay consistent across
+panels. `values`, `prec`, `colors` and error bars work as on `hbar`. Point
+callouts use `at` for the metric and `series` for the model. Other annotation
+forms produce a warning. `min` and `max`, if supplied, apply to every panel.
+If the panels cannot fit, `--check` warns; split the metrics across slides.
 
 ## Data
 

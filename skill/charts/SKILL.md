@@ -128,7 +128,7 @@ LAYOUT   auto = up to three blocks side by side, more in a grid.  cols / rows /
 ==============================================================================
 CHART FIELDS   (all optional; all also valid in a data file's own chart block)
 ==============================================================================
-  type       bar stacked hbar dumbbell line area pie pie3d donut scatter hist table
+  type       bar stacked hbar dumbbell line area pie pie3d donut scatter hist table compare
   title subtitle xlabel ylabel
   values     numbers on the bars / points          (default false)
   legend grid shadow                               (default true)
@@ -156,6 +156,7 @@ CHART FIELDS   (all optional; all also valid in a data file's own chart block)
 
   Which type:
     compare categories ................ bar      (hbar: long names, rankings)
+    models across mixed-unit metrics .. compare (one metric row per panel)
     before -> after, per category ..... dumbbell (a series per state: "1 GbE", "2.5 GbE")
     parts of a total per category ..... stacked
     change over time .................. line     (area: 1-2 series where volume matters)

@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const char *const types[]={"bar","stacked","hbar","dumbbell","line","area","pie","pie3d","donut","scatter","hist","table",NULL};
+static const char *const types[]={"bar","stacked","hbar","dumbbell","line","area","pie","pie3d","donut","scatter","hist","table","compare",NULL};
 static const char *const themes[]={"dos","black","light",NULL};
 static const char *const modes[]={"auto","fb","kitty","sixel","cells","ascii","vga",NULL};
 
@@ -247,7 +247,8 @@ void app_print_types(FILE *f)
     "ring; --depth 0 for flat",
     "XY points; --xy takes the first numeric column as X",
     "histogram of the first series, --bins N buckets",
-    "the numbers as a grid"
+    "the numbers as a grid",
+    "one panel per metric row, each with its own axis; series are models"
   };
   size_t i;for(i=0;types[i];i++)fprintf(f,"%-9s %s\n",types[i],desc[i]);
 }

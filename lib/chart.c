@@ -39,7 +39,7 @@ typedef struct render {
     size_t n,err_series_count;
 } render;
 
-static const char *const types[]={"bar","stacked","hbar","dumbbell","line","area","pie","pie3d","donut","scatter","hist","table"};
+static const char *const types[]={"bar","stacked","hbar","dumbbell","line","area","pie","pie3d","donut","scatter","hist","table","compare"};
 static const char *const pal_names[]={"dos","ega","cga","ice","fire","green","amber","mono"};
 static const int pal_sizes[]={13,14,4,7,7,6,6,6};
 static const unsigned char pals[8][14]={
@@ -1166,6 +1166,76 @@ static void draw_notes(render *rr,plot *p,int pie)
     }
 }
 
+static void ring_cursor(plot *p,double x,double y);
+/* Rows are independent metrics; columns are the things being compared.
+ * Reuse the horizontal renderer with a transposed view of one row, so units
+ * never enter another metric's range. Scratch storage is reused per panel. */
+static void draw_compare(render *rr,lc_rect r)
+{
+    lc_scene *sc;const lc_dataset *ds;render panel;lc_series se;plot p;
+    const char **labels,*title;double *values,*lo,*hi;unsigned char *ok,*err;
+    lc_color *colors;lc_annotation *notes;size_t *source,n,ns,i,j,k,nn;
+    int cols,nrows,col,row,x0,x1,y0,y1,ser;lc_rect frame,in;
+    sc=rr->sc;ds=&rr->ds;n=rows(ds);ns=0;
+    for(i=0;i<ds->series_count;++i)if(!hidden(ds->series+i))++ns;
+    if(!n || !ns)return;
+    cols=MIN((int)(n<=3?n:ceil(sqrt((double)n))),MAX(1,r.w/28));
+    nrows=(int)((n+(size_t)cols-1)/(size_t)cols);
+    if(r.w/cols<16 || ns>(size_t)MAX(0,r.h/nrows-5)) {
+        lc_scene_fit(sc,"compare panels do not fit: use fewer metrics per slide or a larger chart");return;
+    }
+    labels=(const char **)lc_render_array(sc,ns,sizeof *labels);
+    values=(double *)lc_render_array(sc,ns,sizeof *values);
+    lo=(double *)lc_render_array(sc,ns,sizeof *lo);hi=(double *)lc_render_array(sc,ns,sizeof *hi);
+    ok=(unsigned char *)lc_render_array(sc,ns,1);err=(unsigned char *)lc_render_array(sc,ns,1);
+    colors=(lc_color *)lc_render_array(sc,ns,sizeof *colors);
+    source=(size_t *)lc_render_array(sc,ns,sizeof *source);
+    notes=(lc_annotation *)lc_render_array(sc,rr->o.note_count,sizeof *notes);
+    if(!labels || !values || !lo || !hi || !ok || !err || !colors || !source || !notes)return;
+    memset(&se,0,sizeof se);se.name="value";se.values=values;se.valid=ok;se.count=ns;se.decimals=-1;
+    for(i=0,j=0;i<ds->series_count;++i)if(!hidden(ds->series+i)) {
+        labels[j]=ds->series[i].name;colors[j].name=labels[j];colors[j].color=ds->series[i].color;source[j++]=i;
+        se.decimals=MAX(se.decimals,ds->series[i].decimals);
+    }
+    panel=*rr;panel.n=ns;memset(&panel.ds,0,sizeof panel.ds);
+    panel.ds.labels=labels;panel.ds.label_count=ns;panel.ds.series=&se;panel.ds.series_count=1;
+    panel.o.legend=0;panel.o.xlabel=panel.o.ylabel="";panel.o.colors=colors;panel.o.color_count=ns;
+    panel.o.notes=notes;panel.err_lo=&lo;panel.err_hi=&hi;panel.err_valid=&err;panel.err_series_count=1;
+    for(i=0;i<rr->o.note_count;++i)if(rr->o.notes[i].kind!=0) {
+        lc_scene_fit(sc,"compare supports point callouts only; use at and series to select a metric and model");break;
+    }
+    for(i=0;i<n;++i) {
+        col=(int)(i%(size_t)cols);row=(int)(i/(size_t)cols);
+        x0=r.x+(int)((double)r.w*col/cols);x1=r.x+(int)((double)r.w*(col+1)/cols)-1;
+        y0=r.y+(int)((double)r.h*row/nrows);y1=r.y+(int)((double)r.h*(row+1)/nrows)-1;
+        frame=lc_rect_make(x0,y0,x1-x0,y1-y0);
+        lc_canvas_box(&sc->canvas,frame.x,frame.y,frame.w,frame.h,sc->mode.ascii?LC_BOX_ASCII:LC_BOX_SINGLE,sc->skin.frame);
+        title=i<ds->label_count?ds->labels[i]:lc_render_uint(sc,i+1);
+        if(lc_text_width(title)>(size_t)MAX(1,frame.w-4))lc_scene_fit(sc,lc_render_join(sc,"compare metric title \"",title,"\" is cut short"));
+        lc_canvas_text_c(&sc->canvas,frame.x+2,frame.y,frame.w-4,title,sc->skin.title);
+        for(j=0;j<ns;++j) {
+            k=source[j];ok[j]=(unsigned char)valid(ds->series+k,i);values[j]=cell_at(ds,k,i);
+            err[j]=(unsigned char)has_whisker(rr,k,i);
+            lo[j]=err[j]?rr->err_lo[k][i]:0;hi[j]=err[j]?rr->err_hi[k][i]:0;
+        }
+        nn=0;
+        for(j=0;j<rr->o.note_count;++j)if(rr->o.notes[j].kind==0 && note_row(ds,rr->o.notes+j)==(int)i) {
+            notes[nn]=rr->o.notes[j];ser=note_series(ds,notes+nn);
+            for(k=0;k<ns;++k)if(ser<0 || source[k]==(size_t)ser)break;
+            if(k==ns)continue;
+            notes[nn].label=labels[k];notes[nn].index=(int)k;notes[nn].series="";notes[nn].series_i=0;++nn;
+        }
+        panel.o.note_count=nn;in=lc_rect_make(frame.x+1,frame.y+1,frame.w-2,frame.h-2);
+        p=draw_hbars(&panel,in,in);draw_notes(&panel,&p,0);
+        if(rr->o.cur_index==(int)i) {
+            const anchor *a;
+            for(j=0;j<ns;++j)if(rr->o.cur_series<0 || source[j]==(size_t)rr->o.cur_series) {
+                a=find_anchor(&p,0,(int)j);if(a)ring_cursor(&p,a->p.x,a->p.y);break;
+            }
+        }
+    }
+}
+
 static int series_find(const lc_dataset *ds,const char *name)
 { size_t i;for(i=0;i<ds->series_count;++i)if(!hidden(ds->series+i) && lc_name_eq(ds->series[i].name,name))return (int)i;return -1; }
 static int prepare(render *rr,lc_scene *sc,const lc_dataset *ds,const lc_chart_options *opts)
@@ -1256,6 +1326,7 @@ lc_status lc_render_chart(lc_scene *sc,lc_rect r,const lc_dataset *data,const lc
     clip=inner;
     if(!ds->series_count || !rows(ds)){lc_canvas_text_c(cv,inner.x,inner.y+inner.h/2,inner.w,"(no data)",sc->skin.subtitle);return lc_scene_status(sc);}
     if(strcmp(type,"table")==0){draw_table(&rr,inner);return lc_scene_status(sc);}
+    if(strcmp(type,"compare")==0){draw_compare(&rr,inner);return lc_scene_status(sc);}
     pie_like=strcmp(type,"pie")==0 || strcmp(type,"pie3d")==0 || strcmp(type,"donut")==0;visible=0;
     for(i=0;i<ds->series_count;++i)if(!hidden(ds->series+i))++visible;
     if(!pie_like && strcmp(type,"hist")!=0 && o->legend && visible>1) {
