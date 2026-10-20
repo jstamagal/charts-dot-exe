@@ -56,3 +56,9 @@ jobs:
             tests/smoke.sh "x/$t/charts-$v-$t/charts" > "x/$t.log" 2>&1 || { grep -E 'FAIL|passed' "x/$t.log"; exit 1; }
             tail -1 "x/$t.log"
           done
+      - name: presenter tests on the static x86 builds
+        run: |
+          v=$(sed -n 's/^#define LC_VERSION "\(.*\)"$/\1/p' include/charts.h)
+          for t in x86_64-linux-musl i686-linux-musl; do
+            python3 tests/tui.py "x/$t/charts-$v-$t/charts" examples
+          done

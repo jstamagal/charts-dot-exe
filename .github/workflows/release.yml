@@ -61,6 +61,9 @@ jobs:
           file "$bin"
           "$bin" --version
           tests/smoke.sh "$bin"
+      - name: presenter tests on the packed program (where it runs natively)
+        if: matrix.test == 'smoke' && (runner.os == 'macOS' || matrix.target == 'x86_64-linux-musl' || matrix.target == 'i686-linux-musl')
+        run: python3 tests/tui.py "$(echo x/charts-*/charts)" examples
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.target }}
@@ -88,6 +91,7 @@ jobs:
             file "$bin"
             "$bin" --version
             bash tests/smoke.sh "$bin"
+            python3 tests/tui.py "$bin" examples
 
   publish:
     needs: [build, freebsd]

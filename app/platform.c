@@ -690,9 +690,14 @@ app_stamp app_file_stamp(const char *path)
     stamp.exists=1;stamp.seconds=st.st_mtime;stamp.size=(unsigned long)st.st_size;
 #if defined(CHARTS_STAT_NSEC)
     stamp.nanoseconds=CHARTS_STAT_NSEC(st);
-#elif defined(__linux__) && defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 12))
+#elif defined(__APPLE__)
+    stamp.nanoseconds=st.st_mtimensec; /* Darwin's name under _POSIX_C_SOURCE */
+#elif defined(__linux__) && defined(__GLIBC__)
+#if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 12)
     stamp.nanoseconds=st.st_mtim.tv_nsec;
-#elif defined(__FreeBSD__) && __FreeBSD__ >= 12
+#endif
+#elif defined(__linux__) || (defined(__FreeBSD__) && __FreeBSD__ >= 12) || defined(__NetBSD__) || defined(__OpenBSD__)
+    /* POSIX.1-2008 st_mtim: musl, and the BSDs in that mode. */
     stamp.nanoseconds=st.st_mtim.tv_nsec;
 #endif
     return stamp;

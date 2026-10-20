@@ -17,6 +17,7 @@ import select
 import shutil
 import signal
 import struct
+import subprocess
 import sys
 import tempfile
 import termios
@@ -180,6 +181,13 @@ class JobSession(Session):
         try:
             with open("/proc/%d/stat" % self.job) as f:
                 return f.read().rsplit(")", 1)[1].split()[0] == "T"
+        except OSError:
+            pass
+        # No /proc (macOS, the BSDs): ps reports the state.
+        try:
+            out = subprocess.run(["ps", "-o", "stat=", "-p", str(self.job)],
+                                 capture_output=True, text=True).stdout.strip()
+            return out.startswith("T")
         except OSError:
             return False
 
@@ -496,35 +504,39 @@ s.kill()
 
 # ---------------------------------------------------------------------------
 print("== framebuffer")
-fb = os.path.join(d, "fb.raw")
-W, H = 1280, 720
-with open(fb, "wb") as f:
-    f.write(b"\0" * (W * H * 4))
-s = Session([deck], env={"CHARTS_FB": fb, "CHARTS_FB_GEOM": "%dx%dx32" % (W, H), "TERM": "linux"})
-with open(fb, "rb") as f:
-    one = f.read()
-check("a frame of the right size is written", len(one) == W * H * 4)
-check("it is not blank", len(set(one[i:i + 4] for i in range(0, len(one), 4096 * 4 + 4))) > 2)
-blue = bytes([0xAA, 0x00, 0x00])  # B G R of VGA blue
-check("the desktop is VGA blue, in BGRX order", one[0:3] == blue, one[0:4].hex())
-s.keys("RIGHT")
-with open(fb, "rb") as f:
-    two = f.read()
-check("another slide is another picture", one != two)
-s.keys("q")
-s.wait_exit()
-s.kill()
+# The fb backend is Linux only (linux/fb.h); elsewhere --gfx fb falls back to cells.
+if sys.platform.startswith("linux"):
+    fb = os.path.join(d, "fb.raw")
+    W, H = 1280, 720
+    with open(fb, "wb") as f:
+        f.write(b"\0" * (W * H * 4))
+    s = Session([deck], env={"CHARTS_FB": fb, "CHARTS_FB_GEOM": "%dx%dx32" % (W, H), "TERM": "linux"})
+    with open(fb, "rb") as f:
+        one = f.read()
+    check("a frame of the right size is written", len(one) == W * H * 4)
+    check("it is not blank", len(set(one[i:i + 4] for i in range(0, len(one), 4096 * 4 + 4))) > 2)
+    blue = bytes([0xAA, 0x00, 0x00])  # B G R of VGA blue
+    check("the desktop is VGA blue, in BGRX order", one[0:3] == blue, one[0:4].hex())
+    s.keys("RIGHT")
+    with open(fb, "rb") as f:
+        two = f.read()
+    check("another slide is another picture", one != two)
+    s.keys("q")
+    s.wait_exit()
+    s.kill()
 
-fb16 = os.path.join(d, "fb16.raw")
-with open(fb16, "wb") as f:
-    f.write(b"\0" * (800 * 600 * 2))
-s = Session([deck], env={"CHARTS_FB": fb16, "CHARTS_FB_GEOM": "800x600x16", "TERM": "linux"})
-with open(fb16, "rb") as f:
-    px = struct.unpack("<H", f.read(2))[0]
-check("16 bpp packs 5-6-5", px == (0xAA >> 3), hex(px))
-s.keys("q")
-s.wait_exit()
-s.kill()
+    fb16 = os.path.join(d, "fb16.raw")
+    with open(fb16, "wb") as f:
+        f.write(b"\0" * (800 * 600 * 2))
+    s = Session([deck], env={"CHARTS_FB": fb16, "CHARTS_FB_GEOM": "800x600x16", "TERM": "linux"})
+    with open(fb16, "rb") as f:
+        px = struct.unpack("<H", f.read(2))[0]
+    check("16 bpp packs 5-6-5", px == (0xAA >> 3), hex(px))
+    s.keys("q")
+    s.wait_exit()
+    s.kill()
+else:
+    print("  skipped: the framebuffer backend is Linux only")
 
 # ---------------------------------------------------------------------------
 print("== kitty graphics")
