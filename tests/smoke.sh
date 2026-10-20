@@ -990,6 +990,14 @@ has "stat accepts lower-is-better without warnings" "$TMP/stat-better.out" "0 wa
 printf '{"slides":[{"stat":"0.26 s","delta":"-74%%","better":"sideways"}]}' > "$TMP/stat-bad.json"
 "$BIN" "$TMP/stat-bad.json" --check > "$TMP/stat-bad.out" 2>&1
 check "stat rejects invalid better direction" "$?" "1"
+# Callouts must preserve value labels even in a crowded narrow chart.
+printf '%s' '{"slides":[{"type":"hbar","data":{"A":2294,"B":2787,"C":2500},"values":true,"annotations":[{"at":"A","text":"first token 16K +9% improvement"},{"at":"B","text":"second result 16K +9% improvement"}]}]}' > "$TMP/callout.json"
+"$BIN" "$TMP/callout.json" --print --size 40x16 > "$TMP/callout.out" 2>&1
+has "callouts preserve first value" "$TMP/callout.out" "2,294"
+has "callouts preserve second value" "$TMP/callout.out" "2,787"
+printf '%s' '{"slides":[{"type":"bar","data":{"A":2294},"annotations":[{"note":[0,0],"text":"A note with room beyond twenty four cells"}]}]}' > "$TMP/note-wide.json"
+"$BIN" "$TMP/note-wide.json" --print --size 120x33 > "$TMP/note-wide.out" 2>&1
+has "notes use available width" "$TMP/note-wide.out" "A note with room beyond twenty four cells"
 
 # Numeric-X lines must not draw the X column as a Y series.
 printf 'run,yoda,vader\n13,2294,2787\n17,2400,2800\n991,2500,2900\n' > "$TMP/line-xy.csv"

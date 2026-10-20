@@ -1047,7 +1047,7 @@ static void draw_notes(render *rr,plot *p,int pie)
     placed=(box *)lc_render_array(sc,rr->o.note_count,sizeof *placed);if(!placed)return;placed_n=0;
     for(i=0;i<rr->o.note_count;++i) {
         a=rr->o.notes+i;fg=sc->skin.note_fg;bg=sc->skin.note_bg;if(a->color>=0){bg=a->color;fg=lc_contrast_on(bg);}
-        lines=lc_render_wrap(sc,a->text,24);tw=0;for(j=0;j<lines.n;++j)tw=MAX(tw,lc_text_width(lines.v[j]));
+        lines=lc_render_wrap(sc,a->text,(size_t)MAX(1,p->clip.w-2));tw=0;for(j=0;j<lines.n;++j)tw=MAX(tw,lc_text_width(lines.v[j]));
         memset(&b,0,sizeof b);b.w=(double)tw+2;b.h=(double)lines.n;
         if(p->across && (a->kind==1 || a->kind==2)) {
             at=-1;
@@ -1127,7 +1127,9 @@ static void draw_notes(render *rr,plot *p,int pie)
             if(k<0) {
                 t=b;t.x=ax+(k==-2?2.5:10);t.y=ay-b.h/2;score=(k+2)*0.5;
                 if(t.x+t.w>RIGHT(p->clip)+1)score+=500;
-                score+=box_penalty(t,placed,placed_n,200)+box_penalty(t,p->taken,p->taken_count,40);
+                if(!p->fine){t.x=floor(t.x+0.5);t.y=floor(t.y+0.5);}
+                if(t.x<p->clip.x || t.x+t.w>RIGHT(p->clip)+1 || t.y<p->clip.y || t.y+t.h>BOTTOM(p->clip)+1 ||
+                   box_penalty(t,placed,placed_n,1) || box_penalty(t,p->taken,p->taken_count,1))continue;
                 if(score<best_score){best_score=score;best=t;}continue;
             }
             ux=offsets[k][0];uy=offsets[k][1];if(pie && an->directional && ux*cos(an->dir)+uy*sin(an->dir)<-0.2)continue;
@@ -1136,9 +1138,24 @@ static void draw_notes(render *rr,plot *p,int pie)
             if(t.x+t.w>RIGHT(p->clip)+1){score+=(t.x+t.w-RIGHT(p->clip)-1)*50;t.x=RIGHT(p->clip)+1-t.w;}
             if(t.y<p->clip.y){score+=(p->clip.y-t.y)*50;t.y=p->clip.y;}
             if(t.y+t.h>BOTTOM(p->clip)+1){score+=(t.y+t.h-BOTTOM(p->clip)-1)*50;t.y=BOTTOM(p->clip)+1-t.h;}
-            score+=box_penalty(t,placed,placed_n,200)+box_penalty(t,p->taken,p->taken_count,40);
+            if(!p->fine){t.x=floor(t.x+0.5);t.y=floor(t.y+0.5);}
+            if(t.x<p->clip.x || t.x+t.w>RIGHT(p->clip)+1 || t.y<p->clip.y || t.y+t.h>BOTTOM(p->clip)+1 ||
+               box_penalty(t,placed,placed_n,1) || box_penalty(t,p->taken,p->taken_count,1))continue;
             if(t.x<=ax && ax<=t.x+t.w && t.y<=ay && ay<=t.y+t.h)score+=500;
             if(score<best_score){best_score=score;best=t;}
+        }
+        if(best_score==1e18) {
+            for(y=p->clip.y;y+b.h<=BOTTOM(p->clip)+1;++y)
+                for(x=p->clip.x;x+b.w<=RIGHT(p->clip)+1;++x) {
+                    t=b;t.x=x;t.y=y;
+                    if(box_penalty(t,placed,placed_n,1) || box_penalty(t,p->taken,p->taken_count,1))continue;
+                    score=fabs(t.x+t.w/2-ax)+2*fabs(t.y+t.h/2-ay);
+                    if(score<best_score){best_score=score;best=t;}
+                }
+        }
+        if(best_score==1e18) {
+            lc_scene_fit(sc,lc_render_join(sc,"callout \"",a->text,"\" does not fit clear of value labels and other callouts"));
+            continue;
         }
         if(!p->fine){best.x=floor(best.x+0.5);best.y=floor(best.y+0.5);}
         bx=MAX(best.x,MIN(ax,best.x+best.w));by=MAX(best.y,MIN(ay,best.y+best.h));lx=(bx-p->cells.x)*p->sx;ly=(by-p->cells.y)*p->sy;

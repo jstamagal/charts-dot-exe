@@ -192,7 +192,7 @@ ANNOTATIONS   say what the chart means, on the chart
   {"note": [0.02, 0.02], "text": "n = 412"}                     free text, [x,y] 0..1 from top left
   "at"/"x" = the category label as in the data (or a 0-based row); "series"
   optional.  On a scatter "x" is a value on the X axis.  "color": COLOUR
-  recolours one.  Text wraps at 24 characters.
+  recolours one.  Text wraps to the available chart width.
   Callouts place themselves clear of value labels and each other.  On hbar
   and dumbbell the value axis runs across, so "y" stands up and "x" lies down.
 

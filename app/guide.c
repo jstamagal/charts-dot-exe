@@ -164,7 +164,7 @@ static const char *const app_guide[] = {
   "  {\"note\": [0.02, 0.02], \"text\": \"n = 412\"}                     free text, [x,y] 0..1 from top left\n",
   "  \"at\"/\"x\" = the category label as in the data (or a 0-based row); \"series\"\n",
   "  optional.  On a scatter \"x\" is a value on the X axis.  \"color\": COLOUR\n",
-  "  recolours one.  Text wraps at 24 characters.\n",
+  "  recolours one.  Text wraps to the available chart width.\n",
   "  Callouts place themselves clear of value labels and each other.  On hbar\n",
   "  and dumbbell the value axis runs across, so \"y\" stands up and \"x\" lies down.\n",
   "\n",

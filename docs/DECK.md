@@ -295,8 +295,9 @@ its value and an `x` line lies across its category's row.
 `at` and `x` take the category label exactly as it is in the data (case does
 not matter), or a 0-based row number. `series` is the series name; leave it
 out on single-series charts. `"color": "red"` recolours one annotation. Text
-wraps at 24 characters. Callouts place themselves clear of the value labels and
-of each other; two or three per chart is the useful limit.
+wraps to the available chart width. Callouts avoid value labels and each
+other. If no clear position fits, the callout is omitted with a fit warning;
+two or three per chart is the useful limit.
 
 `--check` warns when `at` or `series` names something the data does not have,
 with the nearest real name.
