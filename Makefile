@@ -86,6 +86,7 @@ uninstall:
 clean:
 	rm -f $(LIBOBJ) $(APPOBJ) libcharts.a charts charts-asan charts-static build/test-core build/test-output build/test-platform build/test-save
 	rm -f build/test-chart-alloc build/test-chart-extremes build/oracle-*.o build/oracle.a build/*-compare build/charts-oracle
+	rm -rf dist
 
 run: all
 	./charts examples/revenue.csv -t pie3d
@@ -109,7 +110,19 @@ skill: all gallery
 	cp docs/DECK.md skill/charts/references/deck-format.md
 	cp examples/demo/* skill/charts/assets/example-deck/
 
-.PHONY: all test test-lib test-stress asan test-asan static install uninstall clean run oracle install-skill gallery skill
+# Release archives: make dist TARGET=<target>; make dist-targets lists them.
+# tools/dist.sh cross-compiles with zig cc (or $$CC) and packs dist/.
+dist:
+	@test -n "$(TARGET)" || { echo "usage: make dist TARGET=<target> (make dist-targets lists them)" >&2; exit 2; }
+	sh tools/dist.sh $(TARGET)
+
+dist-targets:
+	@sh tools/dist.sh --list
+
+print-sources:
+	@echo $(APPSRC) $(LIBSRC)
+
+.PHONY: all test test-lib test-stress asan test-asan static install uninstall clean run oracle install-skill gallery skill dist dist-targets print-sources
 
 # Optional migration oracle: C++ is used only for comparison with the frozen
 # original source, never to build the library or application.

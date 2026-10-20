@@ -3,6 +3,7 @@ build/
 /charts
 /charts-asan
 /charts-static
+/dist/
 *.o
 *.d
 *.a

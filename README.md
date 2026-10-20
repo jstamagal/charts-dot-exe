@@ -13,13 +13,26 @@ pixels through `/dev/fb0`. Inside kitty, ghostty, wezterm or foot it sends the
 same picture through their graphics protocols. Anywhere else — ssh, tmux, a
 serial line — it falls back to half blocks, and `--ascii` below that.
 
+## Download
+
+Every version has a [GitHub Release](https://github.com/jstamagal/charts-dot-exe/releases)
+with a ready program for each system, built and tested by GitHub Actions:
+Linux (static, x86_64, aarch64, armv7, i686 with SSE2, riscv64), macOS (arm64,
+x86_64), FreeBSD (x86_64). Each archive holds the program, this README, the
+licence, the man page and the agent skill; `SHA256SUMS` lists their digests.
+Versions stay below 1.0 for now.
+
 ## Build
 
 ```sh
 make                          # libcharts.a + ./charts (C89 compiler, GNU make)
 make test                     # library, CLI, fuzz, and presenter checks
 make install PREFIX=~/.local  # or the default /usr/local
+make dist TARGET=aarch64-linux-musl   # a release archive in dist/ (zig cc)
 ```
+
+`make dist-targets` lists the release targets; `tools/release.sh` makes a
+release (see AGENTS.md).
 
 `libcharts` contains the hand-written rasterizer, bitmap font, chart and slide
 renderers, and PNG/sixel/Kitty/cell encoders. The entire application, including
