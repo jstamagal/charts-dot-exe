@@ -11,6 +11,9 @@
 #if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
 #define APP_DOS_PATHS 1
 #endif
+#if defined(_WIN32) || defined(APP_DOS_PATHS)
+#define APP_DRIVE_PATHS 1
+#endif
 
 typedef struct deck_parser {
   app_deck *deck;
@@ -132,7 +135,7 @@ static char *dir_of(const char *path, app_error *err)
 {
   const char *s;
   s=strrchr(path ? path : "",'/');
-#ifdef APP_DOS_PATHS
+#ifdef APP_DRIVE_PATHS
   {
     const char *back=strrchr(path ? path : "",'\\');
     if (back && (!s || back>s)) s=back;
@@ -152,7 +155,7 @@ static char *resolve(const char *dir, const char *ref, app_error *err)
     if (home) return join2(home,ref+1,err);
   }
   if (!*ref || ref[0]=='/' || !dir || !*dir) return app_strdup(ref,err);
-#ifdef APP_DOS_PATHS
+#ifdef APP_DRIVE_PATHS
   if (ref[0]=='\\' || (ref[0] && ref[1]==':')) return app_strdup(ref,err);
   p=join2(dir,"\\",err);
 #else
@@ -1778,7 +1781,7 @@ static int rewrite_relative(app_deck *deck, app_block *blocks, size_t count,
     if (b->kind==APP_BLOCK_CHART && b->data_ref &&
         !strncmp(b->data_ref,deck->dir,len) &&
         (b->data_ref[len]=='/'
-#ifdef APP_DOS_PATHS
+#ifdef APP_DRIVE_PATHS
          || b->data_ref[len]=='\\'
 #endif
         )) {
@@ -1806,7 +1809,7 @@ int app_deck_save(app_deck *deck, app_error *err)
     len=strlen(stem); dot=len; slash=0;
     for (i=0;i<len;i++) {
       if (stem[i]=='/'
-#ifdef APP_DOS_PATHS
+#ifdef APP_DRIVE_PATHS
           || stem[i]=='\\'
 #endif
          ) slash=i+1;

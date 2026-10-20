@@ -21,6 +21,8 @@ step png export
 n=$(ls "$WORK/png" | wc -l); [ "$n" -eq 6 ] || bad "6 PNGs, got $n"
 head -c 8 "$WORK/png/slide-01.png" | od -An -tx1 | grep -q '89 50 4e 47 0d 0a 1a 0a' || bad "slide-01.png is not a PNG"
 step deck from files; "$exe" "$ROOT/examples/deck.json" --check || bad "examples/deck.json --check"
+step native Windows deck path
+"$exe" "$(cygpath -w "$ROOT/examples/deck.json")" --check || bad "native path resolves relative CSV files"
 step launcher
 "$exe" "$ROOT/examples/deck.json" --launcher "$WORK/mydeck" || bad "--launcher"
 [ -f "$WORK/mydeck.cmd" ] || bad "the launcher is not mydeck.cmd"
