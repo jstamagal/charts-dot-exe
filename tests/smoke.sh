@@ -998,6 +998,16 @@ has "callouts preserve second value" "$TMP/callout.out" "2,787"
 printf '%s' '{"slides":[{"type":"bar","data":{"A":2294},"annotations":[{"note":[0,0],"text":"A note with room beyond twenty four cells"}]}]}' > "$TMP/note-wide.json"
 "$BIN" "$TMP/note-wide.json" --print --size 120x33 > "$TMP/note-wide.out" 2>&1
 has "notes use available width" "$TMP/note-wide.out" "A note with room beyond twenty four cells"
+printf 'metric,yoda,vader\nDecode tok/s,2294,2787\nFirst token s,1.2,0.3\n' > "$TMP/grouping.csv"
+"$BIN" "$TMP/grouping.csv" --check > "$TMP/grouping.out" 2>&1
+has "check reports interpreted series and categories" "$TMP/grouping.out" "2 series x 2 categories"
+has "check names grouping column" "$TMP/grouping.out" 'grouped by "metric"'
+has "check names actual series" "$TMP/grouping.out" '"yoda", "vader"'
+if [ $HAVE_PY -eq 1 ]; then
+  "$BIN" "$TMP/grouping.csv" --check --json > "$TMP/grouping.json"
+  python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["charts"][0]; assert c["series"]==["yoda","vader"] and c["categories"]==["Decode tok/s","First token s"] and c["grouped_by"]=="metric"' "$TMP/grouping.json"
+  check "check JSON exposes interpreted grouping" "$?" "0"
+fi
 
 # Numeric-X lines must not draw the X column as a Y series.
 printf 'run,yoda,vader\n13,2294,2787\n17,2400,2800\n991,2500,2900\n' > "$TMP/line-xy.csv"

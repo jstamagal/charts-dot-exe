@@ -23,6 +23,7 @@ static const char *const app_guide[] = {
   "               round upstream (SQL, awk, python); charts draws what it is given.\n",
   "  2. DECK      write deck.json (format below).\n",
   "  3. CHECK     charts deck.json --check\n",
+  "               Lists series x categories, grouping column and names first.\n",
   "               Every problem with its JSON path and a did-you-mean.  It also\n",
   "               DRAWS every slide at console size and warns about whatever did\n",
   "               not fit (title cut, labels thinned, ylabel too long, annotation\n",

@@ -243,6 +243,7 @@ int main(int argc,char **argv)
   }
   if(lc_context_create(NULL,&ctx)!=LC_OK){app_error_set(&err,1,"out of memory");goto done;}
   if(a.check){
+    if(!a.json){s=app_deck_grouping(&deck,&err);if(!s)goto done;fputs(s,stdout);free(s);}
     mode.pixel=1;mode.ascii=0;mode.color=1;
     for(i=0;i<deck.slide_count;i++){
       if(!render_one(ctx,&deck,i,&cli,theme,a.width?a.width:DEFAULT_COLS,a.height?a.height:DEFAULT_ROWS,mode,1,&scene,&err)){

@@ -1883,10 +1883,65 @@ char *app_deck_issues_text(const app_deck *d, app_error *err)
   return b.text;
 }
 
+/* Keep grouping summaries separate from warnings: a valid orientation is
+ * useful information, not a problem that an agent must eliminate. */
+static int report_groups(report_buffer *r,const app_block *blocks,size_t count,
+                         int json,size_t *seen)
+{
+  size_t i,j,ns,nc;
+  const app_block *b;
+  const app_dataset *d;
+  const char *group;
+  for(i=0;i<count;i++) {
+    b=blocks+i;d=&b->data;
+    if(b->kind==APP_BLOCK_CHART && !b->error) {
+      ns=0;for(j=0;j<d->series_count;j++)
+        if(!d->series[j].name || d->series[j].name[0]!='\001')ns++;
+      nc=app_data_rows(d);group=d->label_name && *d->label_name?d->label_name:"category";
+      if(json) {
+        if((*seen && !report_add(r,", ")) || !report_add(r,"{\"path\": ") ||
+           !report_json_string(r,b->path) || !report_add(r,", \"series_count\": ") ||
+           !report_num(r,ns) || !report_add(r,", \"category_count\": ") ||
+           !report_num(r,nc) || !report_add(r,", \"grouped_by\": ") ||
+           !report_json_string(r,group) || !report_add(r,", \"series\": ["))return 0;
+      } else {
+        if(!report_add(r,"chart ") || !report_add(r,b->path) || !report_add(r,": ") ||
+           !report_num(r,ns) || !report_add(r," series x ") || !report_num(r,nc) ||
+           !report_add(r," categories, grouped by ") || !report_json_string(r,group) ||
+           !report_add(r,"; series: ["))return 0;
+      }
+      ns=0;
+      for(j=0;j<d->series_count;j++) {
+        if(d->series[j].name && d->series[j].name[0]=='\001')continue;
+        if((ns++ && !report_add(r,", ")) || !report_json_string(r,d->series[j].name))return 0;
+      }
+      if(!report_add(r,json?"], \"categories\": [":"]; categories: ["))return 0;
+      for(j=0;j<nc;j++) {
+        if((j && !report_add(r,", ")) || !report_json_string(r,j<d->label_count?d->labels[j]:""))return 0;
+      }
+      if(!report_add(r,json?"]}":"]\n"))return 0;
+      ++*seen;
+    }
+    if(!report_groups(r,b->children,b->child_count,json,seen))return 0;
+  }
+  return 1;
+}
+
+char *app_deck_grouping(const app_deck *d,app_error *err)
+{
+  report_buffer r;size_t i,seen=0;
+  memset(&r,0,sizeof r);r.err=err;
+  for(i=0;i<d->slide_count;i++)
+    if(!report_groups(&r,d->slides[i].blocks,d->slides[i].block_count,0,&seen)) {
+      free(r.text);return NULL;
+    }
+  return r.text?r.text:app_strdup("",err);
+}
+
 char *app_deck_issues_json(const app_deck *d, app_error *err)
 {
   report_buffer b;
-  size_t i,errors=0,warnings=0;
+  size_t i,errors=0,warnings=0,seen=0;
   memset(&b,0,sizeof b); b.err=err;
   for (i=0;i<d->issue_count;i++) if (d->issues[i].error) errors++; else warnings++;
   if (!report_add(&b,"{\"ok\": ") || !report_add(&b,errors ? "false" : "true") ||
@@ -1902,7 +1957,10 @@ char *app_deck_issues_json(const app_deck *d, app_error *err)
         !report_add(&b,", \"message\": ") || !report_json_string(&b,x->message) ||
         !report_add(&b,"}")) goto fail;
   }
-  if ((d->issue_count && !report_add(&b,"\n")) || !report_add(&b,"]}\n")) goto fail;
+  if ((d->issue_count && !report_add(&b,"\n")) || !report_add(&b,"], \"charts\": [")) goto fail;
+  for(i=0;i<d->slide_count;i++)
+    if(!report_groups(&b,d->slides[i].blocks,d->slides[i].block_count,1,&seen))goto fail;
+  if(!report_add(&b,"]}\n"))goto fail;
   return b.text;
 fail:
   free(b.text); return NULL;

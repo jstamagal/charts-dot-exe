@@ -51,6 +51,7 @@ THE LOOP
                round upstream (SQL, awk, python); charts draws what it is given.
   2. DECK      write deck.json (format below).
   3. CHECK     charts deck.json --check
+               Lists series x categories, grouping column and names first.
                Every problem with its JSON path and a did-you-mean.  It also
                DRAWS every slide at console size and warns about whatever did
                not fit (title cut, labels thinned, ylabel too long, annotation

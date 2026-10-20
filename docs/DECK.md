@@ -313,6 +313,12 @@ charts deck.json --png-dir out/   # every slide: out/slide-01.png …
 charts deck.json --print --slide 2 -w 120 -H 33   # as text
 ```
 
+`--check` lists each chart's series and categories before rendering, including
+the grouping column and names. `--check --json` includes the same information
+in a `charts` array (`path`, `series_count`, `category_count`, `grouped_by`,
+`series`, `categories`). The numeric X column under `xy` is excluded from the
+series count. Use `transpose` when those roles are reversed.
+
 `--check` also draws every slide at console size and warns about what did not
 fit: a title cut short, category labels thinned or truncated, a `ylabel` longer
 than its axis, a stat label or text block that overflows.

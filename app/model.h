@@ -277,6 +277,7 @@ int app_deck_reparse(app_deck *deck, const app_load_opts *opts,
 int app_deck_save(app_deck *deck, app_error *err);
 char *app_deck_issues_text(const app_deck *deck, app_error *err);
 char *app_deck_issues_json(const app_deck *deck, app_error *err);
+char *app_deck_grouping(const app_deck *deck, app_error *err);
 char *app_deck_outline(const app_deck *deck, app_error *err);
 app_json *app_deck_node(app_deck *deck, const char *path);
 int app_deck_store_spec(app_deck *deck, app_block *block, int content,
