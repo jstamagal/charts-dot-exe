@@ -26,6 +26,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: GNU timeout for the tests
+        run: brew install coreutils && echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: build
         run: make
       - name: test
@@ -51,6 +53,6 @@ jobs:
           for t in x86_64-linux-musl aarch64-linux-musl armv7-linux-musleabihf i686-linux-musl riscv64-linux-musl; do
             mkdir -p "x/$t" && tar -xzf "dist/charts-$v-$t.tar.gz" -C "x/$t"
             echo "== $t"
-            tests/smoke.sh "x/$t/charts-$v-$t/charts" > "x/$t.log" 2>&1 || { tail -40 "x/$t.log"; exit 1; }
+            tests/smoke.sh "x/$t/charts-$v-$t/charts" > "x/$t.log" 2>&1 || { grep -E 'FAIL|passed' "x/$t.log"; exit 1; }
             tail -1 "x/$t.log"
           done

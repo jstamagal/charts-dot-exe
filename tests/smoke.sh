@@ -25,7 +25,9 @@ pass=0
 fail=0
 ok()   { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 bad()  { fail=$((fail+1)); printf '  FAIL %s\n' "$1"; }
-check(){ if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (want [$3] got [$2])"; fi; }
+# BSD wc pads its count with spaces; a count is compared as a number.
+check(){ local got="$2"; case $got in *[0-9]*) case $got in *[!\ 0-9]*) ;; *) got=$((got)) ;; esac ;; esac
+         if [ "$got" = "$3" ]; then ok "$1"; else bad "$1 (want [$3] got [$2])"; fi; }
 # has NAME FILE PATTERN / hasnt NAME FILE PATTERN   (fixed strings)
 has()  { if grep -qF -- "$3" "$2"; then ok "$1"; else bad "$1 (no [$3] in $(basename "$2"))"; fi; }
 hasnt(){ if grep -qF -- "$3" "$2"; then bad "$1 (found [$3] in $(basename "$2"))"; else ok "$1"; fi; }
@@ -105,9 +107,9 @@ echo "== basics"
 "$BIN" -h >/dev/null 2>&1;         check "-h exits 0" "$?" "0"
 "$BIN" --schema > "$TMP/schema.txt" 2>&1; check "--schema exits 0" "$?" "0"
 has "--schema documents annotations" "$TMP/schema.txt" "ANNOTATIONS"
-"$BIN" --list-types | grep -q pie3d;    check "--list-types names pie3d" "$?" "0"
-"$BIN" --list-palettes | grep -q cga;   check "--list-palettes names cga" "$?" "0"
-"$BIN" --list-themes | grep -q light;   check "--list-themes names light" "$?" "0"
+"$BIN" --list-types | grep pie3d >/dev/null;    check "--list-types names pie3d" "$?" "0"
+"$BIN" --list-palettes | grep cga >/dev/null;   check "--list-palettes names cga" "$?" "0"
+"$BIN" --list-themes | grep light >/dev/null;   check "--list-themes names light" "$?" "0"
 
 echo "== examples are valid input"
 "$BIN" --example csv  > "$TMP/sample.csv"
@@ -129,9 +131,9 @@ echo "== loaders"
 "$BIN" --describe "$EX/revenue.csv" > "$TMP/rev.txt"
 grep -q "^series:  2" "$TMP/rev.txt"; check "revenue.csv -> 2 series" "$?" "0"
 grep -q "^rows:    12" "$TMP/rev.txt"; check "revenue.csv -> 12 rows" "$?" "0"
-"$BIN" --describe "$EX/traffic.tsv" | grep -q "^series:  3"
+"$BIN" --describe "$EX/traffic.tsv" | grep "^series:  3" >/dev/null
 check "tab separated -> 3 series" "$?" "0"
-"$BIN" --describe "$EX/disk.json" | grep -q "^series:  2"
+"$BIN" --describe "$EX/disk.json" | grep "^series:  2" >/dev/null
 check "json records -> 2 series" "$?" "0"
 
 # json shapes that agents actually emit
@@ -140,50 +142,50 @@ cat > "$TMP/shapes.json" <<'EOF'
   "labels": ["a","b","c"],
   "series": [ {"name":"one","values":[1,2,3]}, {"name":"two","values":[3,2,1]} ] }
 EOF
-"$BIN" --describe "$TMP/shapes.json" | grep -q "^series:  2"
+"$BIN" --describe "$TMP/shapes.json" | grep "^series:  2" >/dev/null
 check "json labels+series" "$?" "0"
 
 echo '{"Mon":10,"Tue":20,"Wed":5}' > "$TMP/obj.json"
-"$BIN" --describe "$TMP/obj.json" | grep -q "^rows:    3"
+"$BIN" --describe "$TMP/obj.json" | grep "^rows:    3" >/dev/null
 check "json object of numbers" "$?" "0"
 
 echo '[1,4,9,16,25]' > "$TMP/arr.json"
-"$BIN" --describe "$TMP/arr.json" | grep -q "^series:  1"
+"$BIN" --describe "$TMP/arr.json" | grep "^series:  1" >/dev/null
 check "json flat array" "$?" "0"
 
 echo '[{"x":1,"y":10},{"x":2,"y":20}]' > "$TMP/xy.json"
-"$BIN" --describe "$TMP/xy.json" | grep -q "^series:  2"
+"$BIN" --describe "$TMP/xy.json" | grep "^series:  2" >/dev/null
 check "json numeric x stays a data series" "$?" "0"
 "$BIN" "$TMP/xy.json" -t scatter --xy -w 70 -H 18 --no-color >/dev/null
 check "json x/y scatters" "$?" "0"
 echo '[{"date":"2025-01","v":3},{"date":"2025-02","v":4}]' > "$TMP/dates.json"
-"$BIN" --describe "$TMP/dates.json" | grep -q "2025-01"
+"$BIN" --describe "$TMP/dates.json" | grep "2025-01" >/dev/null
 check "json text date becomes the label" "$?" "0"
 
 printf 'a,b\n1,2\n3,4\n' > "$TMP/numbers-first.csv"
-"$BIN" --describe "$TMP/numbers-first.csv" | grep -q "^rows:    2"
+"$BIN" --describe "$TMP/numbers-first.csv" | grep "^rows:    2" >/dev/null
 check "all-numeric csv has no header" "$?" "0"
 
 printf 'k,v\n"two, with comma",5\nplain,6\n' > "$TMP/quotes.csv"
-"$BIN" --describe "$TMP/quotes.csv" | grep -q "two, with comma"
+"$BIN" --describe "$TMP/quotes.csv" | grep "two, with comma" >/dev/null
 check "quoted field with comma" "$?" "0"
 
 printf 'a\n1\n\n2\n' > "$TMP/blank.csv"
-"$BIN" --describe "$TMP/blank.csv" | grep -q "^rows:    2"
+"$BIN" --describe "$TMP/blank.csv" | grep "^rows:    2" >/dev/null
 check "blank line skipped" "$?" "0"
 
 printf '# comment\na,b\n1,2\n' > "$TMP/comment.csv"
-"$BIN" --describe "$TMP/comment.csv" | grep -q "^series:  2"
+"$BIN" --describe "$TMP/comment.csv" | grep "^series:  2" >/dev/null
 check "leading # comment skipped" "$?" "0"
 
 printf 'k;v;w\na;1;2\nb;3;4\n' > "$TMP/semi.csv"
-"$BIN" --describe "$TMP/semi.csv" | grep -q "^series:  2"
+"$BIN" --describe "$TMP/semi.csv" | grep "^series:  2" >/dev/null
 check "semicolon delimiter is sniffed" "$?" "0"
 printf 'k|v|w\na|1|2\nb|3|4\n' > "$TMP/pipe.csv"
-"$BIN" --describe "$TMP/pipe.csv" | grep -q "^series:  2"
+"$BIN" --describe "$TMP/pipe.csv" | grep "^series:  2" >/dev/null
 check "pipe delimiter is sniffed" "$?" "0"
 printf 'k,v\r\na,1\r\nb,2\r\n' > "$TMP/crlf.csv"
-"$BIN" --describe "$TMP/crlf.csv" | grep -q "^rows:    2"
+"$BIN" --describe "$TMP/crlf.csv" | grep "^rows:    2" >/dev/null
 check "CRLF line ends" "$?" "0"
 
 echo "== series_col counts the labels, and says so when it misses"
@@ -302,7 +304,7 @@ if cmp -s "$TMP/errnone.out" "$TMP/errone.out"; then bad "error bars: whiskers c
 
 echo "== dumbbell: before and after"
 printf 'k,before,after\nCRRC,57.6,63.1\nRRCC,56.5,62.0\nlocal,115.3,115.3\n' > "$TMP/db.csv"
-"$BIN" --list-types | grep -q dumbbell; check "dumbbell is a type" "$?" "0"
+"$BIN" --list-types | grep dumbbell >/dev/null; check "dumbbell is a type" "$?" "0"
 "$BIN" "$TMP/db.csv" -t dumbbell --values --print -w 80 -H 12 --no-color > "$TMP/db.out" 2>&1; check "dumbbell: exit 0" "$?" "0"
 has "dumbbell: values as the file wrote them" "$TMP/db.out" "62.0"
 has "dumbbell: category labels" "$TMP/db.out" "RRCC"
@@ -334,7 +336,7 @@ has "file annotation: callout text drawn" "$TMP/specj.out" "peak here"
 has "file annotation: target line text drawn" "$TMP/specj.out" "floor"
 
 echo "== stdin"
-"$BIN" --describe - < "$EX/revenue.csv" | grep -q "stdin"
+"$BIN" --describe - < "$EX/revenue.csv" | grep "stdin" >/dev/null
 check "reads stdin with -" "$?" "0"
 cat "$EX/revenue.csv" | "$BIN" -t bar --no-color > "$TMP/pipe.out"
 check "pipes csv to a chart" "$?" "0"
@@ -399,11 +401,11 @@ has "--values prints numbers (two series, wide canvas)" "$TMP/values2.out" "298"
 hasnt "--no-grid removes dots" "$TMP/nogrid.out" "·"
 "$BIN" "$EX/revenue.csv" -t bar --no-legend -w 90 -H 24 --no-color > "$TMP/nolegend.out"
 hasnt "--no-legend removes the legend" "$TMP/nolegend.out" "costs"
-"$BIN" "$EX/revenue.csv" -t pie3d --explode 0 -w 80 -H 24 --no-color | grep -q '█'
+"$BIN" "$EX/revenue.csv" -t pie3d --explode 0 -w 80 -H 24 --no-color | grep '█' >/dev/null
 check "--explode 0 works" "$?" "0"
-"$BIN" "$EX/revenue.csv" -t bar --min 0 --max 400 -w 90 -H 24 --no-color | grep -q '400'
+"$BIN" "$EX/revenue.csv" -t bar --min 0 --max 400 -w 90 -H 24 --no-color | grep '400' >/dev/null
 check "--max pins the axis" "$?" "0"
-"$BIN" "$EX/revenue.csv" -t bar --frame single -w 90 -H 24 --no-color | grep -q '┌'
+"$BIN" "$EX/revenue.csv" -t bar --frame single -w 90 -H 24 --no-color | grep '┌' >/dev/null
 check "--frame single draws single lines" "$?" "0"
 "$BIN" "$EX/revenue.csv" -t bar --frame none -w 90 -H 24 --no-color > "$TMP/noframe.out"
 hasnt "--frame none drops the frame" "$TMP/noframe.out" "╔"
@@ -430,9 +432,9 @@ ok "every theme runs"
 check "--no-header on a headed file still draws" "$?" "0"
 has "--no-header: the header row's words are named as gaps" "$TMP/nohdr.out" '"revenue" in "col2" (row 1)' 
 printf '10,20\n1,2\n3,4\n' > "$TMP/numhead.csv"
-"$BIN" "$TMP/numhead.csv" --no-header --describe | grep -q "^rows:    3"
+"$BIN" "$TMP/numhead.csv" --no-header --describe | grep "^rows:    3" >/dev/null
 check "--no-header keeps every row" "$?" "0"
-"$BIN" "$EX/revenue.csv" -t bar --series-col 2 --describe | grep -q "^series:  1"
+"$BIN" "$EX/revenue.csv" -t bar --series-col 2 --describe | grep "^series:  1" >/dev/null
 check "--series-col keeps one series" "$?" "0"
 "$BIN" "$EX/revenue.csv" -t hbar --labels-col 1 -w 80 -H 20 --no-color >/dev/null
 check "--labels-col runs" "$?" "0"
@@ -937,7 +939,7 @@ printf 'k,v\n"unterminated,5\nb,6\n' > "$TMP/quote.csv";      hostile "untermina
 head -c 3000 /dev/urandom > "$TMP/random.csv" 2>/dev/null;    hostile "random bytes as csv" "$TMP/random.csv"
 cp "$TMP/random.csv" "$TMP/random.json";                      hostile "random bytes as json" "$TMP/random.json"
 printf '\xef\xbb\xbfk,v\na,1\nb,2\n' > "$TMP/bom.csv"
-"$BIN" --describe "$TMP/bom.csv" 2>/dev/null | grep -q "^rows:    2"; check "UTF-8 BOM is skipped" "$?" "0"
+"$BIN" --describe "$TMP/bom.csv" 2>/dev/null | grep "^rows:    2" >/dev/null; check "UTF-8 BOM is skipped" "$?" "0"
 
 echo "== hostile decks"
 hostile_deck() { # NAME FILE  -> --check, --print and --png each exit 0 or 1 within 20 s, with no sanitizer report

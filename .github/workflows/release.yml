@@ -46,6 +46,9 @@ jobs:
       - name: tools
         if: runner.os == 'Linux'
         run: tools/ci-setup.sh zig qemu
+      - name: GNU timeout for the tests
+        if: runner.os == 'macOS'
+        run: brew install coreutils && echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: build ${{ matrix.target }}
         env:
           CC: ${{ matrix.cc }}
