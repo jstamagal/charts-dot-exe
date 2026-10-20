@@ -150,7 +150,8 @@ read — is never overwritten; the sheet says so.
 ## Chart types
 
 `bar` `stacked` `hbar` `dumbbell` `line` `area` `pie` `pie3d` `donut`
-`scatter` `hist` `table`. Bars, pies and donuts are extruded by default;
+`scatter` `hist` `table` `compare`. Compare gives each metric its own axis.
+Bars, pies and donuts are extruded by default;
 `depth: 0` is flat. Bars on an axis that does not start at zero are drawn torn.
 `errors` puts whiskers on bars, lines and points from min/max or ± columns.
 
