@@ -983,6 +983,12 @@ if [ $HAVE_PY -eq 1 ]; then
   hostile_deck "a did-you-mean over 30 kB names" "$TMP/hd-long.json"
 fi
 
+# Numeric-X lines must not draw the X column as a Y series.
+printf 'run,yoda,vader\n13,2294,2787\n17,2400,2800\n991,2500,2900\n' > "$TMP/line-xy.csv"
+"$BIN" "$TMP/line-xy.csv" -t line --xy --values --print --size 100x35 > "$TMP/line-xy.out" 2>&1
+hasnt "numeric-X line excludes X values from value labels" "$TMP/line-xy.out" "991"
+has "numeric-X line retains Y value labels" "$TMP/line-xy.out" "2,294"
+
 # ------------------------------------------------------------------------------
 if [ $HAVE_PY -eq 1 ]; then
 echo "== fuzz: random and mutated decks and data (fixed seed)"

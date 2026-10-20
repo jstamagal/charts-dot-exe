@@ -724,10 +724,10 @@ static plot draw_lines(render *rr,lc_rect r,lc_rect clip,int area)
     return p;
 }
 
-static plot draw_scatter(render *rr,lc_rect r,lc_rect clip)
+static plot draw_scatter(render *rr,lc_rect r,lc_rect clip,int connected)
 {
     plot p;lc_scene *sc;const lc_dataset *ds;lc_chart_options *o;const lc_series *xs;
-    size_t n,start,s,i;double xlo,xhi,ylo,yhi,x,y,padx,pady,mr,px,py;int c;ticks ts;
+    size_t n,start,s,i;double xlo,xhi,ylo,yhi,x,y,padx,pady,mr,px,py,last_x,last_y;int c,have_last;ticks ts;
     sc=rr->sc;ds=&rr->ds;o=&rr->o;n=rows(ds);xs=NULL;start=0;
     if(ds->series_count>=2 && (hidden(ds->series)||o->xy)){xs=ds->series;start=1;}
     xlo=ylo=CHART_SENTINEL;xhi=yhi=-CHART_SENTINEL;
@@ -748,16 +748,20 @@ static plot draw_scatter(render *rr,lc_rect r,lc_rect clip)
     ts=nice_range(&ylo,&yhi,MAX(3,MIN(9,r.h/3)),o->has_lo,o->has_hi,0);
     p=axes(rr,r,clip,ylo,yhi,ts,NULL,0,1,xlo,xhi);if(!p.sf)return p;mr=p.fine?(n>60?2:3.5):0;
     for(s=start;s<ds->series_count;++s) {
-        c=ds->series[s].color;
+        c=ds->series[s].color;have_last=0;last_x=last_y=0;
         for(i=0;i<n;++i) {
             if(!valid(ds->series+s,i) || (xs && !valid(xs,i)))continue;
             y=cell_at(ds,s,i);x=xs?xs->values[i]:(double)(i+1);px=(x-xlo)/(xhi-xlo);
             if(!lc_finite(px))px=(x/2-xlo/2)/(xhi/2-xlo/2);
             px=p.ox+px*(p.pw-1);py=px_y(&p,y);
+            if(connected && have_last)lc_surface_line(p.sf,last_x,last_y,px,py,INK(c),p.fine?(p.ph>160?3:2):1);
+            last_x=px;last_y=py;have_last=1;
             if(has_whisker(rr,s,i))whisker(&p,px_y(&p,rr->err_lo[s][i]),px_y(&p,rr->err_hi[s][i]),px,0);
             if(p.fine){lc_surface_marker(p.sf,px,py,(int)(s-start),mr+1,INK(panel(sc)));lc_surface_marker(p.sf,px,py,(int)(s-start),mr,INK(c));}
             else lc_surface_set(p.sf,lc_clamp_int(px,INT_MIN,INT_MAX),lc_clamp_int(MIN(py,p.ph-1),INT_MIN,INT_MAX),INK(c));
             remember(&p,(int)s,(int)i,px,py,0,0);
+            if(connected && o->values && (ds->series_count-start==1 || n<=8))
+                plot_label(&p,px,py-p.sy*0.75-mr,format_point(sc,ds->series+s,y,o->prec),ds->series_count-start==1?sc->skin.value:c,-1);
         }
     }
     return p;
@@ -1246,9 +1250,9 @@ lc_status lc_render_chart(lc_scene *sc,lc_rect r,const lc_dataset *data,const lc
     if(strcmp(type,"stacked")==0)p=draw_bars(&rr,inner,clip,1,0);
     else if(strcmp(type,"hbar")==0)p=draw_hbars(&rr,inner,clip);
     else if(strcmp(type,"dumbbell")==0)p=draw_dumbbell(&rr,inner,clip);
-    else if(strcmp(type,"line")==0)p=draw_lines(&rr,inner,clip,0);
+    else if(strcmp(type,"line")==0)p=(o->xy || hidden(ds->series))?draw_scatter(&rr,inner,clip,1):draw_lines(&rr,inner,clip,0);
     else if(strcmp(type,"area")==0)p=draw_lines(&rr,inner,clip,1);
-    else if(strcmp(type,"scatter")==0)p=draw_scatter(&rr,inner,clip);
+    else if(strcmp(type,"scatter")==0)p=draw_scatter(&rr,inner,clip,0);
     else if(strcmp(type,"hist")==0)p=draw_hist(&rr,inner,clip);
     else if(strcmp(type,"pie")==0)p=draw_pie(&rr,inner,clip,0,0);
     else if(strcmp(type,"pie3d")==0)p=draw_pie(&rr,inner,clip,1,0);
