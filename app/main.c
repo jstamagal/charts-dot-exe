@@ -172,6 +172,7 @@ int main(int argc,char **argv)
   app_spec cli;
   lc_scene *scene;
   lc_mode mode;
+  app_platform_init();
   app_args_init(&a);app_deck_init(&deck);app_spec_init(&cli);
   err.code=0;err.message[0]=0;
   if(!app_args_parse(&a,argc,argv,&err)){code=err.code?err.code:2;goto done;}

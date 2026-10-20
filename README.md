@@ -18,7 +18,7 @@ serial line — it falls back to half blocks, and `--ascii` below that.
 Every version has a [GitHub Release](https://github.com/jstamagal/charts-dot-exe/releases)
 with a ready program for each system, built and tested by GitHub Actions:
 Linux (static, x86_64, aarch64, armv7, i686 with SSE2, riscv64), macOS (arm64,
-x86_64), FreeBSD (x86_64), FreeDOS (32-bit, DOS/4GW; a `.zip` with 8.3 names). Each archive holds the program, this README, the
+x86_64), FreeBSD (x86_64), Windows (x86_64, i686 with SSE2; a `.zip`), FreeDOS (32-bit, DOS/4GW; a `.zip` with 8.3 names). Each archive holds the program, this README, the
 licence, the man page and the agent skill; `SHA256SUMS` lists their digests.
 Versions stay below 1.0 for now.
 
@@ -46,6 +46,11 @@ The default compiler flags suit GCC and Clang; override `CC` and `CFLAGS` for
 other compilers. Build against the target system's C library/ABI, or use a
 suitable static build. The host test suite additionally needs Bash and
 `timeout`; interactive tests need Python 3.
+
+On Windows (10 1809 or later) `charts.exe` uses the console API: UTF-8 output
+and VT sequences in Windows Terminal or the classic console, keys read as
+console events, cells by default and `--gfx sixel` or `kitty` on request.
+`--launcher NAME` writes `NAME.cmd`.
 
 Linux framebuffer access follows the device node's permissions; membership
 in `video` permits access on systems that assign the device to that group.

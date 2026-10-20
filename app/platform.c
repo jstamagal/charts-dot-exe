@@ -1,10 +1,21 @@
-/* Only this application adapter owns terminals, OS calls, and VGA hardware. */
-#if !defined(__DOS__) && !defined(MSDOS) && !defined(__MSDOS__)
+/* Only this application adapter owns terminals, OS calls, and VGA hardware.
+ * Three systems: POSIX (termios), DOS (Watcom, BIOS and VGA ports) and
+ * Windows (the console API, with its VT input and output modes). DOS and
+ * Windows share drive-letter paths and a rename that will not replace. */
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+#define APP_DOS 1
+#define APP_DOSPATH 1
+#elif defined(_WIN32)
+#define APP_WIN 1
+#define APP_DOSPATH 1
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#else
+#define APP_POSIX 1
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
 #endif
-#else
-#define APP_DOS 1
 #endif
 #include "platform.h"
 #include "bridge.h"
@@ -23,6 +34,11 @@
 #include <i86.h>
 #include <io.h>
 #include <direct.h>
+#elif defined(APP_WIN)
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#include <signal.h>
 #else
 #include <unistd.h>
 #include <dirent.h>
@@ -40,9 +56,58 @@
 #define MAXIMUM(a,b) ((a)>(b)?(a):(b))
 #define MINIMUM(a,b) ((a)<(b)?(a):(b))
 static const char *env(const char *s) { const char *v;v=getenv(s);return v ? v : ""; }
+#ifdef APP_WIN
+/* Bytes go straight to the handle: no CRT text-mode newline rewriting, and
+ * the console decodes them as UTF-8 once app_platform_init set its code page. */
+static int win_write(const void *p,size_t n)
+{
+    HANDLE h;
+    DWORD w;
+    const char *s;
+    h=GetStdHandle(STD_OUTPUT_HANDLE);s=(const char *)p;
+    if (h==INVALID_HANDLE_VALUE || !h) return -1;
+    fflush(stdout);
+    while (n) {
+        if (!WriteFile(h,s,(DWORD)(n>65536U ? 65536U : n),&w,NULL) || !w) return -1;
+        s+=w;n-=w;
+    }
+    return 0;
+}
+static UINT win_old_cp;
+static DWORD win_old_out;
+static int win_have_out;
+static void win_console_restore(void)
+{
+    if (win_have_out) SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE),win_old_out);
+    if (win_old_cp) SetConsoleOutputCP(win_old_cp);
+    win_have_out=0;win_old_cp=0;
+}
+#endif
+void app_platform_init(void)
+{
+#ifdef APP_WIN
+    HANDLE h;
+    DWORD mode;
+    h=GetStdHandle(STD_OUTPUT_HANDLE);
+    if (GetConsoleMode(h,&mode)) {
+        win_old_out=mode;win_have_out=1;win_old_cp=GetConsoleOutputCP();
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleMode(h,mode|ENABLE_PROCESSED_OUTPUT|ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        atexit(win_console_restore);
+    } else {
+        /* A pipe or a file gets the bytes as written: PNG to stdout stays PNG. */
+        _setmode(_fileno(stdout),_O_BINARY);
+    }
+    h=GetStdHandle(STD_ERROR_HANDLE);
+    if (GetConsoleMode(h,&mode)) SetConsoleMode(h,mode|ENABLE_PROCESSED_OUTPUT|ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    _setmode(_fileno(stdin),_O_BINARY);
+#endif
+}
 static void say(const char *s)
 {
-#ifndef APP_DOS
+#ifdef APP_WIN
+    win_write(s,strlen(s));
+#elif !defined(APP_DOS)
     size_t n;
     n=strlen(s);
     while (n) {
@@ -57,7 +122,9 @@ static void say(const char *s)
 static int stdout_sink(void *user,const unsigned char *p,size_t n)
 {
     (void)user;
-#ifndef APP_DOS
+#ifdef APP_WIN
+    return win_write(p,n);
+#elif !defined(APP_DOS)
     while (n) {
         ssize_t w;
         w=write(1,p,n);if (w<0 && errno==EINTR) continue;if (w<=0) return -1;
@@ -68,11 +135,25 @@ static int stdout_sink(void *user,const unsigned char *p,size_t n)
     return app_file_sink(stdout,p,n);
 #endif
 }
+#ifdef APP_WIN
+/* _isatty() is also true for NUL; only a console has a console mode. */
+static HANDLE win_handle(int fd) { return (HANDLE)_get_osfhandle(fd); }
+int app_is_tty(int fd) { DWORD mode;return GetConsoleMode(win_handle(fd),&mode)!=0; }
+#else
 int app_is_tty(int fd) { return isatty(fd)!=0; }
+#endif
 void app_term_size(int *cols,int *rows)
 {
     *cols=80;*rows=24;
-#ifndef APP_DOS
+#ifdef APP_WIN
+    {
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE),&info) ||
+            GetConsoleScreenBufferInfo(GetStdHandle(STD_ERROR_HANDLE),&info)) {
+            *cols=info.srWindow.Right-info.srWindow.Left+1;*rows=info.srWindow.Bottom-info.srWindow.Top+1;
+        }
+    }
+#elif !defined(APP_DOS)
     {
         int i;
         struct winsize w;
@@ -92,7 +173,26 @@ void app_term_size(int *cols,int *rows)
 int app_raw_enter(app_raw *raw,int fd)
 {
     raw->saved=NULL;raw->fd=fd;
-#ifndef APP_DOS
+#ifdef APP_WIN
+    {
+        /* Keys arrive as VT sequences, so the POSIX decoder below reads them;
+         * Ctrl-C arrives as a byte instead of a signal. */
+        DWORD *saved,mode;
+        HANDLE h;
+        h=win_handle(fd);
+        if (!GetConsoleMode(h,&mode)) return 0;
+        saved=(DWORD *)malloc(sizeof *saved);if (!saved) return 0;
+        *saved=mode;
+        mode&=~(DWORD)(ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT|ENABLE_PROCESSED_INPUT|ENABLE_MOUSE_INPUT);
+        mode|=ENABLE_VIRTUAL_TERMINAL_INPUT|ENABLE_WINDOW_INPUT;
+        if (!SetConsoleMode(h,mode)) {
+            /* Older consoles lack VT input: keep raw keys without it. */
+            mode&=~(DWORD)ENABLE_VIRTUAL_TERMINAL_INPUT;
+            if (!SetConsoleMode(h,mode)) { free(saved);return 0; }
+        }
+        raw->saved=saved;return 1;
+    }
+#elif !defined(APP_DOS)
     {
         struct termios *saved,now;
         if (!isatty(fd)) return 0;
@@ -109,7 +209,9 @@ int app_raw_enter(app_raw *raw,int fd)
 }
 void app_raw_leave(app_raw *raw)
 {
-#ifndef APP_DOS
+#ifdef APP_WIN
+    if (raw->saved) SetConsoleMode(win_handle(raw->fd),*(DWORD *)raw->saved);
+#elif !defined(APP_DOS)
     if (raw->saved) tcsetattr(raw->fd,TCSANOW,(struct termios *)raw->saved);
 #endif
     free(raw->saved);raw->saved=NULL;
@@ -123,9 +225,76 @@ static int dos_key(void)
     return (int)_bios_keybrd(_KEYBRD_READ);
 }
 #endif
+#ifdef APP_WIN
+/* Console key events become the bytes a VT terminal would send: UTF-8 for
+ * characters, and an escape sequence for a navigation key that carries no
+ * character (a console without VT input mode reports those as key codes). */
+static unsigned char win_queue[64];
+static int win_head,win_tail;
+static unsigned win_high;
+static void win_push(const char *s,size_t n)
+{ while (n-- && win_tail<(int)sizeof win_queue) win_queue[win_tail++]=(unsigned char)*s++; }
+static void win_push_char(unsigned long c)
+{
+    char b[4];
+    size_t n;
+    if (c<0x80) { b[0]=(char)c;n=1; }
+    else if (c<0x800) { b[0]=(char)(0xc0|(c>>6));b[1]=(char)(0x80|(c&63));n=2; }
+    else if (c<0x10000UL) { b[0]=(char)(0xe0|(c>>12));b[1]=(char)(0x80|((c>>6)&63));b[2]=(char)(0x80|(c&63));n=3; }
+    else { b[0]=(char)(0xf0|(c>>18));b[1]=(char)(0x80|((c>>12)&63));b[2]=(char)(0x80|((c>>6)&63));b[3]=(char)(0x80|(c&63));n=4; }
+    win_push(b,n);
+}
+static void win_key_event(const KEY_EVENT_RECORD *k)
+{
+    static const struct { WORD vk;const char *seq; } vks[]={
+        {VK_UP,"\033[A"},{VK_DOWN,"\033[B"},{VK_RIGHT,"\033[C"},{VK_LEFT,"\033[D"},
+        {VK_PRIOR,"\033[5~"},{VK_NEXT,"\033[6~"},{VK_HOME,"\033[H"},{VK_END,"\033[F"},
+        {VK_INSERT,"\033[2~"},{VK_DELETE,"\033[3~"},{VK_F1,"\033OP"},{VK_F2,"\033OQ"},
+        {VK_F3,"\033OR"},{VK_F4,"\033OS"},{VK_F5,"\033[15~"},{VK_F6,"\033[17~"},
+        {VK_F7,"\033[18~"},{VK_F8,"\033[19~"},{VK_F9,"\033[20~"},{VK_F10,"\033[21~"}
+    };
+    unsigned c;
+    size_t i;
+    WORD r;
+    if (!k->bKeyDown) return;
+    c=(unsigned)k->uChar.UnicodeChar;
+    for (r=0;r<(k->wRepeatCount ? k->wRepeatCount : 1) && r<8;r++) {
+        if (!c) {
+            if (k->wVirtualKeyCode==VK_TAB && (k->dwControlKeyState&SHIFT_PRESSED)) { win_push("\033[Z",3);continue; }
+            for (i=0;i<sizeof vks/sizeof vks[0];i++) if (vks[i].vk==k->wVirtualKeyCode) { win_push(vks[i].seq,strlen(vks[i].seq));break; }
+            continue;
+        }
+        if (c>=0xd800 && c<0xdc00) { win_high=c;continue; }
+        if (c>=0xdc00 && c<0xe000) {
+            if (win_high) win_push_char(0x10000UL+(((unsigned long)win_high-0xd800)<<10)+(c-0xdc00));
+            win_high=0;continue;
+        }
+        win_push_char(c);
+    }
+}
+#endif
 static int read_byte(int ms)
 {
-#ifndef APP_DOS
+#ifdef APP_WIN
+    HANDLE h;
+    INPUT_RECORD rec;
+    DWORD got,start,spent;
+    if (win_head<win_tail) { int c;c=win_queue[win_head++];if (win_head==win_tail) win_head=win_tail=0;return c; }
+    h=GetStdHandle(STD_INPUT_HANDLE);
+    if (!GetConsoleMode(h,&got)) {
+        unsigned char c;
+        /* Not a console: a pipe or a file, read as it comes. */
+        return ReadFile(h,&c,1,&got,NULL) && got==1 ? c : -1;
+    }
+    start=GetTickCount();
+    for (;;) {
+        spent=GetTickCount()-start;
+        if (spent>=(DWORD)ms || WaitForSingleObject(h,(DWORD)ms-spent)!=WAIT_OBJECT_0) return -1;
+        if (!ReadConsoleInputW(h,&rec,1,&got) || !got) return -1;
+        if (rec.EventType==KEY_EVENT) win_key_event(&rec.Event.KeyEvent);
+        if (win_head<win_tail) { int c;c=win_queue[win_head++];if (win_head==win_tail) win_head=win_tail=0;return c; }
+    }
+#elif !defined(APP_DOS)
     fd_set fds;
     struct timeval tv;
     unsigned char c;
@@ -211,8 +380,10 @@ void app_screen_clear(void) { say("\033[2J\033[H"); }
 void app_cursor_home(void) { say("\033[H"); }
 
 static void (*cleanup_hook)(void);
+#ifdef APP_POSIX
 static void (*resume_hook)(void);
-#ifndef APP_DOS
+#endif
+#ifdef APP_POSIX
 static struct termios guard_saved;
 static int guard_have,guard_installed;
 static volatile sig_atomic_t guard_resumed;
@@ -256,6 +427,36 @@ void app_guard_install(void)
 }
 void app_guard_restore(void) { cleanup();if (guard_have) tcsetattr(0,TCSANOW,&guard_saved); }
 int app_guard_continued(void) { int n;n=guard_resumed;guard_resumed=0;return n; }
+#elif defined(APP_WIN)
+static DWORD guard_saved;
+static int guard_have,guard_installed;
+static void cleanup(void) { void (*fn)(void);fn=cleanup_hook;cleanup_hook=NULL;if (fn) fn(); }
+static void guard_console(void)
+{
+    if (guard_have) SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE),guard_saved);
+    win_console_restore();
+}
+static void fatal(int sig)
+{
+    cleanup();say("\033[0m\033[?25h");guard_console();
+    signal(sig,SIG_DFL);raise(sig);
+}
+/* Closing the window or Ctrl-Break: put the console back before Windows ends us. */
+static BOOL WINAPI console_event(DWORD type)
+{
+    (void)type;cleanup();say("\033[0m\033[?25h");guard_console();return FALSE;
+}
+void app_guard_install(void)
+{
+    static const int signals[]={SIGINT,SIGTERM,SIGSEGV,SIGABRT,SIGFPE,SIGILL};
+    size_t i;
+    if (GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE),&guard_saved)) guard_have=1;
+    if (guard_installed) return;
+    for (i=0;i<sizeof signals/sizeof signals[0];i++) signal(signals[i],fatal);
+    SetConsoleCtrlHandler(console_event,TRUE);atexit(cleanup);guard_installed=1;
+}
+void app_guard_restore(void) { cleanup();if (guard_have) SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE),guard_saved); }
+int app_guard_continued(void) { return 0; }
 #else
 static void cleanup(void) { if (cleanup_hook) cleanup_hook();cleanup_hook=NULL; }
 void app_guard_install(void) { atexit(cleanup); }
@@ -366,7 +567,7 @@ static void vga_open(void)
 static void term_pixels(app_display *d)
 {
     d->cw=d->ch=0;app_term_size(&d->cols,&d->rows);
-#ifndef APP_DOS
+#ifdef APP_POSIX
     {
         struct winsize w;
         memset(&w,0,sizeof w);
@@ -627,8 +828,10 @@ int app_mkdir(const char *path,app_error *err)
 {
     int rc;
     if (app_path_is_dir(path)) return 1;
-#ifdef APP_DOS
+#if defined(APP_DOS)
     rc=mkdir(path);
+#elif defined(APP_WIN)
+    rc=_mkdir(path);
 #else
     rc=mkdir(path,0777);
 #endif
@@ -653,7 +856,7 @@ int app_paths_in_dir(const char *path,char ***paths,size_t *count,app_error *err
     size_t cap;
     int ok;
     *paths=NULL;*count=0;cap=0;ok=1;
-#ifndef APP_DOS
+#ifdef APP_POSIX
     {
         DIR *d;
         struct dirent *e;
@@ -661,7 +864,7 @@ int app_paths_in_dir(const char *path,char ***paths,size_t *count,app_error *err
         while ((e=readdir(d))!=NULL) if (!add_path(paths,count,&cap,path,e->d_name,err)) { ok=0;break; }
         closedir(d);
     }
-#else
+#elif defined(APP_DOS)
     {
         struct find_t found;
         char *pattern;
@@ -672,6 +875,21 @@ int app_paths_in_dir(const char *path,char ***paths,size_t *count,app_error *err
         while (!result) {
             if (!add_path(paths,count,&cap,path,found.name,err)) { ok=0;break; }
             result=_dos_findnext(&found);
+        }
+    }
+#else
+    {
+        struct _finddata_t found;
+        char *pattern;
+        intptr_t find;
+        pattern=(char *)malloc(strlen(path)+5);if (!pattern) { app_error_set(err,1,"out of memory");return 0; }
+        strcpy(pattern,path);strcat(pattern,"/*");find=_findfirst(pattern,&found);free(pattern);
+        if (find==-1) { if (errno!=ENOENT) { app_error_path(err,1,path,strerror(errno));return 0; } }
+        else {
+            do {
+                if (!add_path(paths,count,&cap,path,found.name,err)) { ok=0;break; }
+            } while (_findnext(find,&found)==0);
+            _findclose(find);
         }
     }
 #endif
@@ -702,7 +920,7 @@ app_stamp app_file_stamp(const char *path)
 #endif
     return stamp;
 }
-#ifndef APP_DOS
+#ifdef APP_POSIX
 static void shell_quote(FILE *f,const char *s)
 {
     fputc('\'',f);for (;*s;s++) { if (*s=='\'') fputs("'\\''",f);else fputc(*s,f); }fputc('\'',f);
@@ -716,7 +934,7 @@ int app_launch_file(const char *output,const char *deck_path,const char *executa
     char cwd[4096];
     if (created_path) *created_path=NULL;
     path=app_strdup(output,err);deck=self=NULL;if (!path) return 0;
-#ifndef APP_DOS
+#ifdef APP_POSIX
     if (!strchr(output,'/')) {
         const char *home;
         char *dir;
@@ -726,14 +944,34 @@ int app_launch_file(const char *output,const char *deck_path,const char *executa
         strcat(dir,"/");strcat(dir,output);free(path);path=dir;
     }
 #endif
+#ifdef APP_WIN
+    {
+        /* cmd.exe runs a launcher by its extension: give a bare name one. */
+        const char *base,*p;
+        char *named;
+        base=output;
+        for (p=output;*p;p++) if (*p=='/' || *p=='\\' || *p==':') base=p+1;
+        if (!strchr(base,'.')) {
+            named=(char *)malloc(strlen(path)+5);if (!named) goto memory;
+            strcpy(named,path);strcat(named,".cmd");free(path);path=named;
+        }
+    }
+#endif
     if (deck_path[0]!='/'
-#ifdef APP_DOS
+#ifdef APP_DOSPATH
         && deck_path[0]!='\\' && !(deck_path[0] && deck_path[1]==':')
 #endif
         && getcwd(cwd,sizeof cwd)) {
         n=strlen(cwd)+strlen(deck_path)+2;deck=(char *)malloc(n);if (!deck) goto memory;sprintf(deck,"%s/%s",cwd,deck_path);
     } else deck=app_strdup(deck_path,err);
     self=app_strdup(executable,err);if (!deck || !self) goto memory;
+#ifdef APP_WIN
+    {
+        DWORD got;
+        got=GetModuleFileNameA(NULL,cwd,(DWORD)sizeof cwd);
+        if (got>0 && got<sizeof cwd) { free(self);self=app_strdup(cwd,err);if (!self) goto memory; }
+    }
+#endif
 #ifdef __linux__
     {
         ssize_t got;
@@ -742,8 +980,10 @@ int app_launch_file(const char *output,const char *deck_path,const char *executa
     }
 #endif
     f=fopen(path,"wb");if (!f) { app_error_path(err,1,path,strerror(errno));goto fail; }
-#ifdef APP_DOS
+#if defined(APP_DOS)
     fprintf(f,"@echo off\r\n\"%s\" \"%s\" %%1 %%2 %%3 %%4 %%5 %%6 %%7 %%8 %%9\r\n",self,deck);
+#elif defined(APP_WIN)
+    fprintf(f,"@echo off\r\nrem Presents the deck. Left/right to page, ? for keys, q to quit.\r\n\"%s\" \"%s\" %%*\r\n",self,deck);
 #else
     fputs("#!/bin/sh\n# Presents the deck. Left/right to page, ? for keys, q to quit.\nDECK=",f);shell_quote(f,deck);
     fputs("\nCHARTS=",f);shell_quote(f,self);
@@ -755,7 +995,7 @@ int app_launch_file(const char *output,const char *deck_path,const char *executa
 #endif
     if (ferror(f)) { fclose(f);app_error_path(err,1,path,"write failed");goto fail; }
     if (fclose(f)) { app_error_path(err,1,path,strerror(errno));goto fail; }
-#ifndef APP_DOS
+#ifdef APP_POSIX
     if (chmod(path,0755)) { app_error_path(err,1,path,strerror(errno));goto fail; }
 #endif
     if (created_path) *created_path=path;else free(path);
@@ -776,25 +1016,25 @@ static int temporary_file(const char *target,char **name,app_error *err)
     int fd,flags;
     char *path;
     slash=strrchr(target,'/');
-#ifdef APP_DOS
+#ifdef APP_DOSPATH
     {
         const char *back;
         back=strrchr(target,'\\');if (!slash || (back && back>slash)) slash=back;
     }
 #endif
     dir_len=slash ? (size_t)(slash-target)+1 : 0;
-#ifdef APP_DOS
+#ifdef APP_DOSPATH
     if (!dir_len && target[0] && target[1]==':') dir_len=2;
 #endif
     if (dir_len>(size_t)-1-13) { app_error_set(err,1,"path too large");return -1; }
     path=(char *)malloc(dir_len+13);if (!path) { app_error_set(err,1,"out of memory");return -1; }
     memcpy(path,target,dir_len);flags=O_WRONLY|O_CREAT|O_EXCL;
-#ifdef APP_DOS
+#ifdef APP_DOSPATH
     flags|=O_BINARY;
 #endif
     for (tries=0;tries<1024;tries++) {
         serial=(serial+1)%1000000UL;sprintf(path+dir_len,"CH%06lu.TMP",serial);
-#ifdef APP_DOS
+#ifdef APP_DOSPATH
         if (app_streq_ci(path,target)) continue;
 #else
         if (!strcmp(path,target)) continue;
@@ -828,7 +1068,13 @@ int app_write_replace(const char *path,const char *data,size_t count,app_error *
     }
     if (close(fd)) failed=1;
     if (failed) { app_error_path(err,1,path,"write failed");remove(temporary);free(temporary);return 0; }
-#ifndef APP_DOS
+#if defined(APP_WIN)
+    (void)st;
+    /* Windows replaces in place where rename() refuses an existing target. */
+    if (!MoveFileExA(temporary,path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)) {
+        app_error_path(err,1,path,"cannot replace file");remove(temporary);free(temporary);return 0;
+    }
+#elif !defined(APP_DOS)
     if (app_stat(path,&st)==0) chmod(temporary,st.st_mode&0777);
     if (rename(temporary,path)) { app_error_path(err,1,path,strerror(errno));remove(temporary);free(temporary);return 0; }
 #else

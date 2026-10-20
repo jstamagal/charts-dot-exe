@@ -2,17 +2,19 @@
 # Build charts for one target and pack it for a release:
 #   tools/dist.sh <target>     (or: make dist TARGET=<target>)
 #   tools/dist.sh --list       the targets this script knows
-# Output: dist/charts-<version>-<target>.tar.gz (.zip for FreeDOS) holding
-# the program, README.md, LICENSE, the man page and the agent skill.
+# Output: dist/charts-<version>-<target>.tar.gz (.zip for Windows and
+# FreeDOS) holding the program, README.md, LICENSE, the man page and the
+# agent skill.
 #
-# Unix targets cross-compile with `zig cc` (static musl on Linux). Set CC to
-# use another compiler, e.g. CC="clang -arch arm64" on a Mac.
+# Unix and Windows targets cross-compile with `zig cc` (static musl on
+# Linux). Set CC to use another compiler, e.g. CC="clang -arch arm64" on a Mac.
 # FreeDOS builds with Open Watcom v2 from $WATCOM (32-bit, DOS/4GW extender).
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TARGETS="x86_64-linux-musl aarch64-linux-musl armv7-linux-musleabihf i686-linux-musl
-riscv64-linux-musl x86_64-freebsd aarch64-macos x86_64-macos i386-freedos"
+riscv64-linux-musl x86_64-freebsd aarch64-macos x86_64-macos x86_64-windows
+i686-windows i386-freedos"
 
 if [ "${1:-}" = --list ]; then
     for t in $TARGETS; do echo "$t"; done
@@ -29,7 +31,7 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/charts-dist.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 mkdir -p "$OUT"
 
-# The 32-bit x86 target uses SSE2 (Pentium 4 and later). With x87 maths
+# The 32-bit x86 targets use SSE2 (Pentium 4 and later). With x87 maths
 # (-mcpu=i686) clang's extended precision fails two smoke tests: "1,234.5"
 # prints as "1,234", and --max 400 does not pin the axis.
 CFLAGS="-O2 -ansi -pedantic -Wall -W"
@@ -44,6 +46,8 @@ case $TARGET in
     x86_64-freebsd)          ZIG=x86_64-freebsd ;;
     aarch64-macos)           ZIG=aarch64-macos ;;
     x86_64-macos)            ZIG=x86_64-macos ;;
+    x86_64-windows)          ZIG=x86_64-windows-gnu; EXE=charts.exe ;;
+    i686-windows)            ZIG="x86-windows-gnu -mcpu=pentium4"; EXE=charts.exe ;;
     i386-freedos)            ZIG= ;;
     *) echo "dist: unknown target $TARGET (tools/dist.sh --list)" >&2; exit 2 ;;
 esac
@@ -97,10 +101,18 @@ pkg=$WORK/$NAME
 mkdir -p "$pkg"
 (cd "$ROOT" && $COMPILE -Iinclude -Iapp $CFLAGS $LINK $STRIP -o "$pkg/$EXE" $SOURCES -lm)
 [ -n "$STRIP" ] || { command -v strip >/dev/null 2>&1 && strip "$pkg/$EXE" 2>/dev/null || true; }
+rm -f "$pkg/charts.pdb" "$pkg/charts.lib"
 cp "$ROOT/README.md" "$ROOT/LICENSE" "$pkg/"
 cp "$ROOT/docs/charts.1" "$pkg/charts.1"
 mkdir -p "$pkg/skill"
 cp -R "$ROOT/skill/charts" "$pkg/skill/charts"
 
-COPYFILE_DISABLE=1 tar -C "$WORK" -czf "$OUT/$NAME.tar.gz" "$NAME"
-echo "$OUT/$NAME.tar.gz"
+case $TARGET in
+    *-windows)
+        rm -f "$OUT/$NAME.zip"
+        (cd "$WORK" && zip -q -X -r "$OUT/$NAME.zip" "$NAME")
+        echo "$OUT/$NAME.zip" ;;
+    *)
+        COPYFILE_DISABLE=1 tar -C "$WORK" -czf "$OUT/$NAME.tar.gz" "$NAME"
+        echo "$OUT/$NAME.tar.gz" ;;
+esac

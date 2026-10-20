@@ -4,6 +4,7 @@
 #include "model.h"
 typedef struct app_display app_display;
 typedef struct app_raw { void *saved; int fd; } app_raw;
+void app_platform_init(void);
 int app_is_tty(int fd);
 void app_term_size(int *cols,int *rows);
 int app_raw_enter(app_raw *raw,int fd);

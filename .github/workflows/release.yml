@@ -38,6 +38,8 @@ jobs:
           - { target: i686-linux-musl,        os: ubuntu-24.04, tools: zig qemu, test: smoke }
           - { target: riscv64-linux-musl,     os: ubuntu-24.04, tools: zig qemu, test: smoke }
           - { target: x86_64-freebsd,         os: ubuntu-24.04, tools: zig, test: vm }
+          - { target: x86_64-windows,         os: ubuntu-24.04, tools: zig, test: windows }
+          - { target: i686-windows,           os: ubuntu-24.04, tools: zig, test: windows }
           - { target: i386-freedos,           os: ubuntu-24.04, tools: watcom dosbox, test: dosbox }
           - { target: aarch64-macos,          os: macos-15, cc: clang -arch arm64,  test: smoke }
           - { target: x86_64-macos,           os: macos-15, cc: clang -arch x86_64, test: smoke }
@@ -97,8 +99,24 @@ jobs:
             bash tests/smoke.sh "$bin"
             python3 tests/tui.py "$bin" examples
 
+  windows:
+    needs: build
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*-windows
+          merge-multiple: true
+          path: dist
+      - name: pywinpty for the console test
+        run: python -m pip install --disable-pip-version-check pywinpty
+      - name: test both Windows archives
+        shell: bash
+        run: for z in dist/charts-*-windows.zip; do echo "#### $z"; tests/windows.sh "$z"; done
+
   publish:
-    needs: [build, freebsd]
+    needs: [build, freebsd, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
