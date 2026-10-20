@@ -100,7 +100,9 @@ What a block is follows from the key it has.
 
 One big number. `delta` is green with an up arrow when it starts with `+`, red
 with a down arrow when it starts with `-`. Three or four in a row make a KPI
-strip.
+strip. Set `"better": "down"` for lower-is-better metrics: decreases are green
+and increases red. `"better": "up"` is the default. Arrows always show the
+actual direction of change.
 
 ### flow — `flow`
 

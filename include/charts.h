@@ -242,6 +242,7 @@ typedef struct lc_block {
     const lc_shape *shapes; size_t shape_count;
     lc_flow flow;
     struct lc_block *children; size_t child_count;
+    int better_down; /* delta colour: decreasing is good; default increasing */
 } lc_block;
 typedef struct lc_slide {
     const char *path,*title,*subtitle,*notes,*layout;

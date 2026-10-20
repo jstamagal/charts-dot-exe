@@ -270,7 +270,7 @@ static lc_status block_view(lc_context *ctx,const app_deck *deck,app_block *a,lc
     b->error=str(a->error);b->data_ref=str(a->data_ref);b->title=str(a->title);
     b->lines=(const char *const *)a->lines;b->line_count=a->line_count;
     b->size=a->size;b->align=a->align;b->color=a->color;b->box=a->box;b->middle=a->middle;
-    b->value=str(a->value);b->label=str(a->label);b->delta=str(a->delta);
+    b->value=str(a->value);b->label=str(a->label);b->delta=str(a->delta);b->better_down=a->better_down;
     if (app_dataset_view(ctx,&a->data,&b->data)!=LC_OK || app_block_options(ctx,deck,a,cli,&b->chart)!=LC_OK) return LC_ENOMEM;
     if (shapes_view(ctx,a->shapes,b)!=LC_OK || flow_view(ctx,a->flow,&b->flow)!=LC_OK) return LC_ENOMEM;
     b->children=(lc_block *)array(ctx,a->child_count,sizeof *b->children);b->child_count=a->child_count;

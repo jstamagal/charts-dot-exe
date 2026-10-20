@@ -790,7 +790,7 @@ static const char *const deck_keys[]={"title","theme","palette","footer","slides
 static const char *const slide_keys[]={"title","subtitle","notes","layout","blocks",NULL};
 static const char *const chart_keys[]={"data","type","palette","frame","title","subtitle","xlabel","ylabel","legend","values","grid","shadow","explode","depth","bins","prec","min","max","xy","transpose","no_header","labels_col","series_col","label_key","delim","annotations","colors","errors",NULL};
 static const char *const text_keys[]={"text","bullets","title","size","align","valign","color","colour","box",NULL};
-static const char *const stat_keys[]={"stat","label","delta","color","colour","title",NULL};
+static const char *const stat_keys[]={"stat","label","delta","better","color","colour","title",NULL};
 static const char *const shapes_keys[]={"shapes","title","box",NULL};
 static const char *const flow_keys[]={"flow","edges","labels","dir","title","box",NULL};
 static const char *const group_keys[]={"rows","cols",NULL};
@@ -1156,6 +1156,11 @@ static int parse_block(deck_parser *p, app_block *b, const app_json *j,
       if (!strcmp(key,"stat")) ok=(b->value=str_value(v,"",p->err))!=NULL;
       else if (!strcmp(key,"label")) ok=(b->label=str_value(v,"",p->err))!=NULL;
       else if (!strcmp(key,"delta")) ok=(b->delta=str_value(v,"",p->err))!=NULL;
+      else if (!strcmp(key,"better")) {
+        if (v->type==APP_JSON_STRING && app_streq_ci(v->string,"down")) { b->better_down=1; ok=1; }
+        else if (v->type==APP_JSON_STRING && app_streq_ci(v->string,"up")) { b->better_down=0; ok=1; }
+        else ok=issue(p,1,kp,"wants \"up\" or \"down\"");
+      }
       else if (!strcmp(key,"title")) ok=title_taken ? 1 : (b->title=str_value(v,"",p->err))!=NULL;
       else if (!strcmp(key,"color") || !strcmp(key,"colour")) ok=app_parse_color(v,&c) ? (b->color=c,1) : issue(p,1,kp,"unknown color; use a name like \"yellow\" or 0..15");
       else ok=unknown(p,path,key,stat_keys,0);

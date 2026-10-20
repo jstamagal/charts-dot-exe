@@ -108,6 +108,7 @@ BLOCK   the key it has decides what it is
           One string per bullet or paragraph; long lines wrap with a hanging indent.
   stat    {"stat": "1,153", "label": "signups, W35", "delta": "+8.5% w/w", "color": COLOUR}
           one big number.  delta starting "+" is green with an up arrow, "-" red and down.
+          better: "down" makes decreases green and increases red; default "up".
   flow    {"flow": ["read", "think", "write"], ...}      boxes and arrows, laid out for you
   shapes  {"shapes": [SHAPE, ...]}                       free drawing       see DIAGRAMS
   group   {"cols": [BLOCK, ...]}  or  {"rows": [BLOCK, ...]}     nests to any depth

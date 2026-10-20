@@ -983,6 +983,14 @@ if [ $HAVE_PY -eq 1 ]; then
   hostile_deck "a did-you-mean over 30 kB names" "$TMP/hd-long.json"
 fi
 
+# A lower-is-better delta is valid; misspelled directions are errors.
+printf '{"slides":[{"stat":"0.26 s","delta":"-74%%","better":"down"}]}' > "$TMP/stat-better.json"
+"$BIN" "$TMP/stat-better.json" --check > "$TMP/stat-better.out" 2>&1
+has "stat accepts lower-is-better without warnings" "$TMP/stat-better.out" "0 warnings"
+printf '{"slides":[{"stat":"0.26 s","delta":"-74%%","better":"sideways"}]}' > "$TMP/stat-bad.json"
+"$BIN" "$TMP/stat-bad.json" --check > "$TMP/stat-bad.out" 2>&1
+check "stat rejects invalid better direction" "$?" "1"
+
 # Numeric-X lines must not draw the X column as a Y series.
 printf 'run,yoda,vader\n13,2294,2787\n17,2400,2800\n991,2500,2900\n' > "$TMP/line-xy.csv"
 "$BIN" "$TMP/line-xy.csv" -t line --xy --values --print --size 100x35 > "$TMP/line-xy.out" 2>&1

@@ -177,7 +177,8 @@ static void draw_stat(lc_scene *sc,const lc_block *b,lc_rect r,int frame)
     if(!EMPTY(b->label) && y<=BOTTOM(in))lc_canvas_text_c(&sc->canvas,in.x,y++,in.w,b->label,light?0:7);
     if(!EMPTY(b->delta) && y<=BOTTOM(in)) {
         s=trim(sc,b->delta);down=*s=='-' || strncmp(s,"\342\210\222",3)==0 || strncmp(s,"\342\226\274",3)==0;
-        up=*s=='+' || strncmp(s,"\342\226\262",3)==0;c=down?(light?1:9):(up?(light?2:10):sc->skin.dim);
+        up=*s=='+' || strncmp(s,"\342\226\262",3)==0;
+        c=(down || up)?((down==b->better_down)?(light?2:10):(light?1:9)):sc->skin.dim;
         arrow=sc->mode.ascii?"":(down?"\342\226\274 ":(up?"\342\226\262 ":""));
         lc_canvas_text_c(&sc->canvas,in.x,y,in.w,lc_render_join(sc,arrow,s,""),c);
     }

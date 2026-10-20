@@ -228,6 +228,7 @@ typedef struct app_block {
   char **lines;
   size_t line_count, line_capacity;
   char *value, *label, *delta;
+  int better_down;
   app_json *shapes, *flow;
   struct app_block *children;
   size_t child_count, child_capacity;

@@ -66,6 +66,25 @@ static void exercise(lc_context *ctx) {
 int main(void) {
     lc_context *ctx; lc_allocator a; fail_heap heap; size_t i;
     assert(lc_context_create(NULL,&ctx)==LC_OK);
+    {
+        lc_scene *scene; lc_mode mode; lc_cell *cells; lc_block block;
+        lc_slide slide; lc_slide_view view; int direction,sign,i,found;
+        mode.pixel=0; mode.ascii=0; mode.color=1;
+        for(direction=0;direction<2;direction++) for(sign=0;sign<2;sign++) {
+            assert(lc_scene_create(ctx,40,12,mode,&scene)==LC_OK);
+            lc_block_init(&block);block.kind=2;block.value="0.26 s";
+            block.delta=sign?"+74%":"-74%";block.better_down=direction;
+            memset(&slide,0,sizeof slide);slide.blocks=&block;slide.block_count=1;
+            lc_slide_view_init(&view);view.chrome=0;
+            assert(lc_render_slide(scene,&slide,&view)==LC_OK);
+            assert(lc_scene_to_cells(scene,&cells)==LC_OK);found=0;
+            for(i=0;i<40*12;i++) if(cells[i].ch==(sign?0x25b2:0x25bc)) {
+                assert(cells[i].fg==((direction!=sign)?10:9));found++;
+            }
+            assert(found==1);lc_free(ctx,cells);lc_scene_destroy(scene);lc_scratch_reset(ctx);
+        }
+    }
+
     assert(!strcmp(lc_fmt_val(ctx,-1234.5,-1),"-1,234.5"));
     assert(!strcmp(lc_fmt_axis(ctx,1200000),"1.2M"));
     assert(!strcmp(lc_fmt_raw(ctx,1e-300),"1e-300"));
