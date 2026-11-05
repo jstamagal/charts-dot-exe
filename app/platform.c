@@ -50,6 +50,7 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+#include <sys/wait.h>
 #ifdef __linux__
 #include <linux/fb.h>
 #include <linux/kd.h>
@@ -1099,4 +1100,47 @@ int app_write_replace(const char *path,const char *data,size_t count,app_error *
     if (backup) { remove(backup);free(backup); }
 #endif
     free(temporary);return 1;
+}
+
+/* Stage the PNG before exec: no shell interpolation, pipe deadlocks or SIGPIPE.
+   Printing is opt-in, one selected slide at a time. The helper owns transport,
+   loaded-media fitting and the USB job lock. */
+int app_print_image(lc_context *ctx,const lc_image *image,const char *preview,app_error *err)
+{
+#ifdef APP_DOS
+    (void)ctx;(void)image;(void)preview;
+    app_error_set(err,1,"Supvan transport needs a POSIX host; export --png and use supvan-print there");
+    return 0;
+#else
+    FILE *input;
+    lc_sink sink;
+    lc_status result;
+    pid_t child,waited;
+    int status,fd;
+    const char *helper;
+    input=tmpfile();
+    if(!input){app_error_set(err,1,"cannot create printer spool file");return 0;}
+    sink.user=input;sink.write=app_file_sink;
+    result=lc_write_png(ctx,image,&sink);
+    if(result!=LC_OK||fflush(input)||fseek(input,0,SEEK_SET)){
+        fclose(input);app_error_set(err,1,"cannot spool printer PNG");return 0;
+    }
+    helper=getenv("CHARTS_SUPVAN_PRINT");if(!helper||!*helper)helper="supvan-print";
+    fd=fileno(input);child=fork();
+    if(child==0){
+        if(dup2(fd,0)<0)_exit(126);
+        if(fd!=0)close(fd);
+        if(preview)execlp(helper,helper,"--preview",preview,"-",(char *)NULL);
+        else execlp(helper,helper,"-",(char *)NULL);
+        fprintf(stderr,"charts: cannot execute %s: %s\n",helper,strerror(errno));
+        _exit(127);
+    }
+    if(child<0){fclose(input);app_error_set(err,1,"cannot start printer helper");return 0;}
+    do{waited=waitpid(child,&status,0);}while(waited<0&&errno==EINTR);
+    fclose(input);
+    if(waited<0||!WIFEXITED(status)||WEXITSTATUS(status)!=0){
+        app_error_set(err,1,"Supvan job failed; see helper output (not retried)");return 0;
+    }
+    return 1;
+#endif
 }

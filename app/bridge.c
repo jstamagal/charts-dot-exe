@@ -125,7 +125,14 @@ void app_apply_theme(lc_scene *scene,const app_deck *deck,const char *override_n
     size_t i;
     int c;
     skin=lc_scene_skin(scene);
-    if (override_name && *override_name) { lc_skin_init(skin,override_name);return; }
+    if (override_name && *override_name) {
+        if (!strcmp(override_name,"paper")) {
+            lc_skin_init(skin,"light");
+            skin->slide_bg=skin->panel_bg=15;
+            skin->title=skin->heading=skin->accent=0;
+        } else lc_skin_init(skin,override_name);
+        return;
+    }
     if (!deck->theme || !*deck->theme) return;
     theme=app_json_get(deck->root,"theme");
     if (!theme || theme->type!=APP_JSON_OBJECT) { lc_skin_init(skin,deck->theme);return; }

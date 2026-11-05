@@ -33,4 +33,5 @@ int app_paths_in_dir(const char *path,char ***paths,size_t *count,app_error *err
 void app_paths_free(char **paths,size_t count);
 app_stamp app_file_stamp(const char *path);
 int app_launch_file(const char *output,const char *deck_path,const char *executable,char **created_path,app_error *err);
+int app_print_image(lc_context *ctx,const lc_image *image,const char *preview,app_error *err);
 #endif
