@@ -40,7 +40,7 @@ libcharts.a: $(LIBOBJ)
 charts: $(APPOBJ) libcharts.a
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(APPOBJ) libcharts.a $(LDLIBS)
 
-test: all test-lib
+test: all test-lib test-printer
 	./tests/smoke.sh ./charts
 	@if test "`uname -s`" = Linux; then $(MAKE) test-platform; fi
 	@if command -v python3 >/dev/null 2>&1; then python3 tests/tui.py "$(CURDIR)/charts" "$(CURDIR)/examples"; else echo "python3 unavailable: skipped PTY tests"; fi
@@ -67,6 +67,7 @@ asan:
 
 test-asan: asan
 	./tests/smoke.sh ./charts-asan
+	ASAN_OPTIONS=detect_leaks=1 python3 tests/printer.py "$(CURDIR)/charts-asan"
 	ASAN_OPTIONS=detect_leaks=1 python3 tests/tui.py "$(CURDIR)/charts-asan" "$(CURDIR)/examples"
 
 static:
@@ -143,4 +144,7 @@ test-platform: libcharts.a
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o build/test-save tests/dossave.c app/platform.c app/model.c libcharts.a $(LDLIBS)
 	cd build && ./test-save
 
-.PHONY: test-oracle test-platform
+test-printer: charts
+	@if command -v python3 >/dev/null 2>&1; then python3 tests/printer.py "$(CURDIR)/charts"; else echo "python3 unavailable: skipped printer tests"; fi
+
+.PHONY: test-oracle test-platform test-printer

@@ -101,6 +101,27 @@ static int render_png(lc_context *ctx,app_deck *deck,size_t index,
   if(status!=LC_OK){app_error_path(err,1,"write failed",path);return 0;}
   lc_scratch_reset(ctx);return 1;
 }
+static int render_printer(lc_context *ctx,app_deck *deck,const app_spec *cli,
+                          const app_args *a,app_error *err)
+{
+  lc_scene *scene;
+  lc_mode mode;
+  lc_image image;
+  lc_status status;
+  int ok;
+  mode.pixel=1;mode.ascii=0;mode.color=0;
+  if(!render_one(ctx,deck,a->slide?(size_t)(a->slide-1):0,cli,"paper",
+                 a->width,a->height,mode,!deck->implicit,&scene,err))return 0;
+  if(!app_deck_ok(deck)){
+    lc_scene_destroy(scene);app_error_set(err,1,"deck has errors; refusing to print");return 0;
+  }
+  memset(&image,0,sizeof image);
+  status=lc_scene_to_image(scene,&image);
+  if(status!=LC_OK){lc_scene_destroy(scene);app_error_set(err,1,lc_status_string(status));return 0;}
+  ok=app_print_image(ctx,&image,a->printer_preview,err);
+  lc_free(ctx,image.pixels);lc_scene_destroy(scene);lc_scratch_reset(ctx);
+  return ok;
+}
 static int render_cells(lc_context *ctx,app_deck *deck,const app_spec *cli,
                         const app_args *a,const char *theme,int color,app_error *err)
 {
@@ -220,7 +241,7 @@ int main(int argc,char **argv)
   }
   to_png=(a.png&&*a.png)||(a.png_dir&&*a.png_dir);
   tty_out=app_is_tty(1)&&(!a.out||!*a.out);
-  wants_screen=!a.check&&!a.describe&&!to_png&&!a.print;
+  wants_screen=!a.check&&!a.describe&&!to_png&&!a.print&&!a.printer;
   if(wants_screen&&a.show&&!(tty_out&&app_is_tty(0))){
     app_error_set(&err,2,"-i needs a terminal on stdin and stdout (use --print or --png without one)");goto done;
   }
@@ -228,6 +249,17 @@ int main(int argc,char **argv)
   theme=a.theme&&*a.theme?a.theme:(deck.theme&&*deck.theme?NULL:
         (present||to_png||decks==1?"dos":"black"));
   if(a.gfx&&strcmp(a.gfx,"auto")==0&&deck.gfx){free(a.gfx);a.gfx=app_strdup(deck.gfx,&err);if(!a.gfx)goto done;}
+  if(a.printer){
+    /* Native 608x352 landscape canvas fits the 80x50 mm stock with 2 mm
+       margins. Other stock is fitted by the helper using live material data. */
+    if(!a.width)a.width=76;
+    if(!a.height)a.height=22;
+    a.scale=1;
+    free(cli.palette);cli.palette=app_strdup("mono",&err);if(!cli.palette)goto done;
+    cli.color=0;cli.depth=0;cli.shadow=0;
+    cli.flags|=APP_SPEC_PALETTE|APP_SPEC_COLOR|APP_SPEC_DEPTH|APP_SPEC_SHADOW;
+    theme="light";
+  }
   if(!a.scale)a.scale=deck.scale;
   if(!a.width)a.width=deck.cols;
   if(!a.height)a.height=deck.rows;
@@ -272,6 +304,13 @@ int main(int argc,char **argv)
   if(a.slide>(int)deck.slide_count){char message[160];
     sprintf(message,"--slide %d: the deck has %lu slides",a.slide,(unsigned long)deck.slide_count);
     app_error_set(&err,1,message);goto done;
+  }
+  if(a.printer){
+    if(deck.slide_count>1&&!a.slide){
+      app_error_set(&err,2,"--printer prints one label: select a slide with --slide N");goto done;
+    }
+    if(!render_printer(ctx,&deck,&cli,&a,&err))goto done;
+    code=report(&deck,1,&err);goto done;
   }
   if(present){
     memset(&po,0,sizeof po);po.gfx=a.ascii?"ascii":a.gfx;po.theme=a.theme;

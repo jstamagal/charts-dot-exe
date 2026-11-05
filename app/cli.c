@@ -23,6 +23,7 @@ void app_args_free(app_args *a)
   for(i=0;i<a->type_count;i++) free(a->types[i]);
   free(a->types);
   free(a->out); free(a->png); free(a->png_dir); free(a->launcher);
+  free(a->printer); free(a->printer_preview);
   free(a->example); free(a->gfx); free(a->theme); free(a->load.label_key);
   app_spec_free(&a->cli); app_args_init(a);
 }
@@ -174,6 +175,14 @@ int app_args_parse(app_args *a,int argc,char **argv,app_error *err)
     else if(!strcmp(name,"--launcher")){VALUE();if(!cli_set(&a->launcher,v,err))goto fail;}
     else if(!strcmp(name,"-i")||!strcmp(name,"--show")||!strcmp(name,"--interactive")||!strcmp(name,"--tui")||!strcmp(name,"--watch"))a->show=1;
     else if(!strcmp(name,"--print"))a->print=1;
+    else if(!strcmp(name,"--printer")){
+      VALUE();if(strcmp(v,"supvan")){cli_usage(err,"--printer wants supvan",NULL,NULL);goto fail;}
+      if(!cli_set(&a->printer,v,err))goto fail;
+    }
+    else if(!strcmp(name,"--printer-preview")){
+      VALUE();if(!*v){cli_usage(err,"--printer-preview needs a PNG path",NULL,NULL);goto fail;}
+      if(!cli_set(&a->printer_preview,v,err))goto fail;
+    }
     else if(!strcmp(name,"--check")||!strcmp(name,"--validate"))a->check=1;
     else if(!strcmp(name,"--json"))a->json=1;
     else if(!strcmp(name,"--describe")||!strcmp(name,"--dump"))a->describe=1;
@@ -227,6 +236,10 @@ int app_args_parse(app_args *a,int argc,char **argv,app_error *err)
     free(name_copy);name_copy=NULL;
   }
   if(a->png&&*a->png&&a->png_dir&&*a->png_dir)return cli_usage(err,"--png and --png-dir are one or the other",NULL,NULL);
+  if(a->printer_preview&&!a->printer)return cli_usage(err,"--printer-preview requires --printer supvan",NULL,NULL);
+  if(a->printer&&(a->print||a->show||a->check||a->describe||a->png||a->png_dir||a->out||a->launcher))
+    return cli_usage(err,"--printer cannot be combined with another output mode",NULL,NULL);
+  if(a->printer&&a->scale>1)return cli_usage(err,"--printer uses native pixels; omit --scale",NULL,NULL);
   return 1;
 fail:
   free(name_copy);return 0;

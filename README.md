@@ -60,6 +60,36 @@ kitty, sixel or cells from wherever it lands. Everything about how a deck looks
 — theme colours, palettes, per-series colours, display scale — is in the deck
 file.
 
+## Supvan label printing
+
+The native `--printer supvan` output renders one chart or selected slide for the
+KATASYMBOL/Supvan T50M Pro on **vader**. Existing `--print` still emits terminal text.
+
+```sh
+charts data.csv --printer supvan --printer-preview label.png  # no paper
+charts data.csv --printer supvan                            # one label
+charts deck.json --printer supvan --slide 2                  # one selected slide
+supvan-print --status                                       # JSON status
+supvan-print design.svg                                     # also PNG/JPEG
+```
+
+The print profile is white paper, monochrome textures, no extrusion/shadows,
+and a 608 × 352-pixel landscape canvas (`--size` can override it). The helper
+fits and rotates to the **live loaded-label dimensions**, without cropping.
+A multi-slide deck requires `--slide`; there is no implicit whole-deck print.
+Dense dashboards should be redesigned for the small label, not shrunk blindly.
+
+`supvan-print` must be on PATH. It uses SSH to vader, serializes USB jobs,
+and needs neither CUPS nor an open printer port. Set `SUPVAN_HOST` for another
+SSH host, or `CHARTS_SUPVAN_PRINT` to a helper executable path (no shell syntax).
+The helper and its deployment instructions live in the Supvan driver's
+`scripts/supvan_print.py` and `docs/NETWORK_PRINTING.md`. Arbitrary network agents
+can also stream SVG directly through `ssh vader ~/.local/bin/supvan-print --host local -`.
+SVG external file/URL references are blocked. Jobs are not automatically retried.
+
+This optional transport needs POSIX; the core renderer and DOS export remain
+independent of SSH/Python. `make test-printer` exercises dispatch without paper.
+
 ## Decks
 
 A deck is one JSON file. Slides hold charts, text, big numbers, flow diagrams
