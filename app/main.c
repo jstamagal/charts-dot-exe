@@ -111,7 +111,7 @@ static int render_printer(lc_context *ctx,app_deck *deck,const app_spec *cli,
   int ok;
   mode.pixel=1;mode.ascii=0;mode.color=0;
   if(!render_one(ctx,deck,a->slide?(size_t)(a->slide-1):0,cli,"paper",
-                 a->width,a->height,mode,!deck->implicit,&scene,err))return 0;
+                 a->width,a->height,mode,0,&scene,err))return 0;
   if(!app_deck_ok(deck)){
     lc_scene_destroy(scene);app_error_set(err,1,"deck has errors; refusing to print");return 0;
   }
