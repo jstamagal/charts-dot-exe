@@ -7,7 +7,8 @@ typedef struct app_args {
   char **files; size_t file_count,file_capacity;
   char **types; size_t type_count,type_capacity;
   char *out,*png,*png_dir,*launcher,*example,*gfx,*theme;
-  char *printer,*printer_preview;
+  char *printer,*printer_preview,*printer_listen;
+  int printer_status;
   app_spec cli;
   app_load_opts load;
   int width,height,scale,slide;

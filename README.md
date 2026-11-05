@@ -84,33 +84,36 @@ file.
 
 ## Supvan label printing
 
-The native `--printer supvan` output renders one chart or selected slide for the
-KATASYMBOL/Supvan T50M Pro on **vader**. Existing `--print` still emits terminal text.
+**Native C89, no helpers or extra libraries.** On Linux, charts opens the
+KATASYMBOL/Supvan T50M Pro's USB HID device directly. Raster fitting, monochrome
+packing, the LZMA1 range encoder and TCP transport are all in this executable.
+Existing `--print` still emits terminal text.
 
 ```sh
-charts data.csv --printer supvan --printer-preview label.png  # no paper
-charts data.csv --printer supvan                            # one label
+charts data.csv --printer supvan                            # direct USB
+charts data.csv --printer supvan://vader                     # native TCP
+charts data.csv --printer supvan --printer-preview label.png # no paper
 charts deck.json --printer supvan --slide 2                  # one selected slide
-supvan-print --status                                       # JSON status
-supvan-print design.svg                                     # also PNG/JPEG
+charts --printer-status                                     # USB JSON status
+charts --printer supvan://vader --printer-status             # network status
+charts --printer-listen 10.0.0.218:9280                       # same binary serves USB
 ```
 
-The print profile is white paper, monochrome textures, no extrusion/shadows,
-and a 608 × 352-pixel landscape canvas (`--size` can override it). The helper
-fits and rotates to the **live loaded-label dimensions**, without cropping.
-A multi-slide deck requires `--slide`; there is no implicit whole-deck print.
-Dense dashboards should be redesigned for the small label, not shrunk blindly.
+White paper, monochrome patterns, flat charts, and a 608 × 352-pixel landscape
+canvas (`--size` overrides). The in-process fitter reads **live loaded-label
+dimensions**, centers with 2 mm margins, rotates if that fits better, and never
+crops. Multi-slide decks require `--slide`; there is no whole-deck paper surprise.
 
-`supvan-print` must be on PATH. It uses SSH to vader, serializes USB jobs,
-and needs neither CUPS nor an open printer port. Set `SUPVAN_HOST` for another
-SSH host, or `CHARTS_SUPVAN_PRINT` to a helper executable path (no shell syntax).
-The helper and its deployment instructions live in the Supvan driver's
-`scripts/supvan_print.py` and `docs/NETWORK_PRINTING.md`. Arbitrary network agents
-can also stream SVG directly through `ssh vader ~/.local/bin/supvan-print --host local -`.
-SVG external file/URL references are blocked. Jobs are not automatically retried.
+Network printing uses a shared private token and a listener on an explicit
+private IPv4 address. The token and jobs are **unencrypted: trusted LAN only**.
+No SSH executable, Python, Cairo, Rust, libusb, liblzma, or CUPS is involved.
+`CHARTS_PRINTER` can select a default target. The static Linux build has no
+shared-library requirements either. Other platforms keep building and report
+that native printing requires Linux.
 
-This optional transport needs POSIX; the core renderer and DOS export remain
-independent of SSH/Python. `make test-printer` exercises dispatch without paper.
+[Setup, authentication, USB framing and network wire format](docs/PRINTER.md).
+`make test-printer` checks the protocol against mock peers and independently
+decodes the handrolled LZMA streams, without consuming labels.
 
 ## Decks
 

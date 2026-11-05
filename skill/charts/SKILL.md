@@ -346,6 +346,29 @@ WHEN SOMETHING IS OFF
   error bars not drawn ..... errors names a column the data does not have (--check says which)
   a chart is an error box .. the block's error is printed in place; --check has the path
 
+NATIVE THERMAL LABELS (Linux, Supvan T50M Pro)
+  charts data.csv --printer supvan                       direct USB
+  charts data.csv --printer /dev/hidraw5                  select USB device
+  charts data.csv --printer supvan://vader                native TCP, port 9280
+  charts deck.json --printer supvan --slide 2             one selected slide
+  charts data.csv --printer supvan --printer-preview p.png  preview, NO print
+  charts --printer-status                               USB status as JSON
+  charts --printer supvan://vader --printer-status        network status
+  charts --printer-listen 10.0.0.218:9280                 native USB server
+  All in-process C89: raw hidraw reports, raster packing, handrolled LZMA1,
+  TCP sockets and the existing PNG writer. No helper, Python, Rust, libusb,
+  liblzma, SSH executable, CUPS or other library dependency.
+  White-paper mono/flat rendering, 608 x 352 pixels by default (--size overrides).
+  Fits live loaded stock without cropping; 2 mm margins, automatic rotation.
+  Multi-slide input requires --slide. Dense decks need a label-sized layout.
+  CHARTS_PRINTER overrides the default 'supvan' target. Network clients and
+  server share a mode-0600 ~/.config/charts/printer.token containing 64 hex
+  characters; CHARTS_PRINTER_TOKEN_FILE overrides its path. The listener
+  requires an explicit private IPv4 address. Token and jobs are unencrypted:
+  trusted LAN only. Jobs serialize on the USB host; failures are not retried.
+  --print still means terminal text. Other platforms build with an explicit
+  unsupported-printer error. See docs/PRINTER.md for setup and wire format.
+
 OPTIONS  (agents only; the launcher passes none)
   --check [--json]   --describe   --png FILE   --png-dir DIR   --print   --slide N
   --launcher NAME    --example [csv|json|deck]   -o FILE   -i (open data files in the presenter)

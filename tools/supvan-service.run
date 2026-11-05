@@ -1,0 +1,5 @@
+#!/bin/sh
+# Homelab runit entry point; the application itself has no supervisor dependency.
+exec 2>&1
+export HOME=/home/ronald_rump
+exec /usr/bin/chpst -u ronald_rump /home/ronald_rump/.local/bin/charts --printer-listen 10.0.0.218:9280

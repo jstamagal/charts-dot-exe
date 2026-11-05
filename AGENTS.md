@@ -5,6 +5,13 @@ C89 library libcharts (`lib/`, `include/`). `src/` is the old C++ build, kept
 only as a test oracle. The agent skill in `skill/charts/` is generated from
 `charts -h`.
 
+## Implementation boundary
+
+- Keep production code C89; compile with strict C89 diagnostics.
+- Keep charts self-contained: handrolled implementation, libc/libm only. Native
+  support must not invoke helper executables or add third-party libraries.
+- Guard Linux-only USB/socket implementation so other platforms still build.
+
 ## Version
 
 - Every change is released: a version bump, a tag `vX.Y.Z` and a GitHub

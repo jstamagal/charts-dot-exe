@@ -4,6 +4,7 @@
 #include "bridge.h"
 #include "platform.h"
 #include "tui.h"
+#include "printer.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,7 +119,7 @@ static int render_printer(lc_context *ctx,app_deck *deck,const app_spec *cli,
   memset(&image,0,sizeof image);
   status=lc_scene_to_image(scene,&image);
   if(status!=LC_OK){lc_scene_destroy(scene);app_error_set(err,1,lc_status_string(status));return 0;}
-  ok=app_print_image(ctx,&image,a->printer_preview,err);
+  ok=app_printer_image(ctx,&image,a->printer,a->printer_preview,err);
   lc_free(ctx,image.pixels);lc_scene_destroy(scene);lc_scratch_reset(ctx);
   return ok;
 }
@@ -204,6 +205,8 @@ int main(int argc,char **argv)
   if(a.list_palettes){app_print_palettes(stdout);code=0;goto done;}
   if(a.list_themes){app_print_themes(stdout);code=0;goto done;}
   if(a.example){app_print_example(stdout,a.example);code=0;goto done;}
+  if(a.printer_listen){code=app_printer_serve(a.printer_listen,&err)?0:1;goto done;}
+  if(a.printer_status){code=app_printer_status(a.printer,&err)?0:1;goto done;}
   if(!app_sources_expand((const char *const *)a.files,a.file_count,&files,&file_count,&err))goto done;
   if(a.demo&&file_count){app_error_set(&err,2,"--demo shows its own deck: give it no files");goto done;}
   if(!file_count&&!a.demo){

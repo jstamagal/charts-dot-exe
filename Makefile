@@ -17,7 +17,7 @@ LIBSRC = lib/core.c lib/util.c lib/gfx.c lib/canvas.c lib/scene.c \
          lib/render.c lib/chart.c lib/diagram.c lib/slide.c lib/output.c
 APPSRC = app/model.c app/json.c app/spec.c app/data.c app/deck.c \
          app/bridge.c app/platform.c app/cli.c app/guide.c app/examples.c \
-         app/sources.c app/tui.c app/tui_draw.c app/main.c
+         app/sources.c app/tui.c app/tui_draw.c app/printer.c app/supvan.c app/main.c
 LIBOBJ = $(LIBSRC:.c=.o)
 APPOBJ = $(APPSRC:.c=.o)
 
@@ -30,6 +30,8 @@ $(LIBOBJ): include/charts.h lib/internal.h lib/render.h
 lib/gfx.o: lib/font.inc
 $(APPOBJ): include/charts.h app/model.h app/os.h app/bridge.h app/platform.h app/cli.h app/tui.h app/tui_priv.h
 app/main.o app/sources.o: app/sources.h
+app/main.o app/printer.o: app/printer.h
+app/printer.o app/supvan.o: app/supvan.h
 app/tui.o app/tui_draw.o: lib/render.h lib/internal.h
 
 libcharts.a: $(LIBOBJ)
@@ -68,6 +70,9 @@ asan:
 test-asan: asan
 	./tests/smoke.sh ./charts-asan
 	ASAN_OPTIONS=detect_leaks=1 python3 tests/printer.py "$(CURDIR)/charts-asan"
+	mkdir -p build
+	$(SAN_CC) $(CPPFLAGS) -std=c89 -pedantic -O1 -g -fsanitize=address,undefined -o build/test-supvan-codec-asan tests/supvan_codec.c app/supvan.c
+	ASAN_OPTIONS=detect_leaks=1 python3 tests/supvan_codec.py "$(CURDIR)/build/test-supvan-codec-asan"
 	ASAN_OPTIONS=detect_leaks=1 python3 tests/tui.py "$(CURDIR)/charts-asan" "$(CURDIR)/examples"
 
 static:
@@ -87,6 +92,7 @@ uninstall:
 clean:
 	rm -f $(LIBOBJ) $(APPOBJ) libcharts.a charts charts-asan charts-static build/test-core build/test-output build/test-platform build/test-save
 	rm -f build/test-chart-alloc build/test-chart-extremes build/oracle-*.o build/oracle.a build/*-compare build/charts-oracle
+	rm -f build/test-supvan-codec build/test-supvan-codec-asan
 	rm -rf dist
 
 run: all
@@ -162,7 +168,12 @@ test-platform: libcharts.a
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o build/test-save tests/dossave.c app/platform.c app/model.c libcharts.a $(LDLIBS)
 	cd build && ./test-save
 
-test-printer: charts
-	@if command -v python3 >/dev/null 2>&1; then python3 tests/printer.py "$(CURDIR)/charts"; else echo "python3 unavailable: skipped printer tests"; fi
+build/test-supvan-codec: tests/supvan_codec.c app/supvan.c app/supvan.h
+	mkdir -p build
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ tests/supvan_codec.c app/supvan.c
+
+test-printer: charts build/test-supvan-codec
+	./build/test-supvan-codec
+	@if command -v python3 >/dev/null 2>&1; then python3 tests/supvan_codec.py "$(CURDIR)/build/test-supvan-codec" && python3 tests/printer.py "$(CURDIR)/charts"; else echo "python3 unavailable: skipped printer oracle/network tests"; fi
 
 .PHONY: test-oracle test-platform test-printer
