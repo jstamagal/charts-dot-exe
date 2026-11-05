@@ -125,9 +125,11 @@ static int pinned(const lc_chart_options *o,const char *name,size_t position)
 }
 static int shaded(const lc_chart_options *o) { return !o->color || lc_name_eq(o->palette,"mono"); }
 static int panel(lc_scene *sc) { return sc->skin.slide_bg==LC_BG_NONE ? 0 : sc->skin.panel_bg; }
+/* Colourless ink: white on a dark panel, black on paper. */
+static int ink_fg(lc_scene *sc) { return lc_contrast_on(panel(sc)); }
 static lc_ink fill_ink(render *rr,int color,size_t series)
 {
-    if(shaded(&rr->o)) return lc_ink_make(rr->o.color?color:15,rr->sc->skin.panel_bg==LC_BG_NONE?0:rr->sc->skin.panel_bg,(int)(series%4));
+    if(shaded(&rr->o)) return lc_ink_make(rr->o.color?color:ink_fg(rr->sc),rr->sc->skin.panel_bg==LC_BG_NONE?0:rr->sc->skin.panel_bg,(int)(series%4));
     return INK(color);
 }
 static const char *format_point(lc_scene *sc,const lc_series *s,double v,int prec)
@@ -908,7 +910,7 @@ static plot draw_pie(render *rr,lc_rect r,lc_rect clip,int solid,double hole)
         } else if(ws>=0) {
             right=x+1<w?wall[(size_t)y*w+x+1]:-1;
             if(p.fine && right>=0 && right!=ws)lc_surface_set(sf,x,y,edge);
-            else if(shaded(o))lc_surface_set(sf,x,y,lc_ink_make(15,0,3));
+            else if(shaded(o))lc_surface_set(sf,x,y,lc_ink_make(ink_fg(sc),ink_fg(sc)==15?0:panel(sc),3));
             else lc_surface_set(sf,x,y,lc_side_ink(sl[ws].color));
         }
     }
